@@ -1,0 +1,25 @@
+{
+  "name": "youtube-mr-beast-views-parser",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Periodically collect view counts for recent MrBeast videos",
+  "engines": {
+    "node": ">=24.19.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "start": "node --use-env-proxy --env-file-if-exists=.env dist/index.js",
+    "dev": "tsx --use-env-proxy --env-file-if-exists=.env src/index.ts",
+    "collect": "node --use-env-proxy --env-file-if-exists=.env dist/index.js --once",
+    "export": "node --use-env-proxy --env-file-if-exists=.env dist/index.js --export-csv",
+    "test": "tsx --test tests/*.test.ts",
+    "check": "npm run typecheck && npm test && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}
