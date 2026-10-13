@@ -19,6 +19,8 @@ function environment(path: string): NodeJS.ProcessEnv {
   delete env.TRACKING_WINDOW_DAYS;
   delete env.POLL_INTERVAL_MINUTES;
   delete env.FULL_DISCOVERY_INTERVAL_MINUTES;
+  env.WEB_HOST = '127.0.0.1';
+  env.WEB_PORT = '0';
   return env;
 }
 

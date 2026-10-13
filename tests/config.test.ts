@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DAY_MS, MRBEAST_CHANNEL_ID, readConfig } from '../src/config.js';
+import { DAY_MS, MRBEAST_CHANNEL_ID, readConfig, readPublicConfig } from '../src/config.js';
 
 test('defaults to MrBeast, 14 days and five minutes', () => {
   const config = readConfig({ YOUTUBE_API_KEY: 'test-key' });
@@ -33,3 +33,13 @@ for (const name of ['TRACKING_WINDOW_DAYS', 'POLL_INTERVAL_MINUTES', 'FULL_DISCO
     }
   });
 }
+
+test('web settings can be read without an API key and reject invalid ports', () => {
+  assert.equal(readPublicConfig({}).webPort, 3000);
+  assert.equal(readPublicConfig({}).webHost, '127.0.0.1');
+  assert.equal(readPublicConfig({ WEB_PORT: '0' }).webPort, 0);
+  for (const port of ['-1', '65536', '1.5', 'abc']) {
+    assert.throws(() => readPublicConfig({ WEB_PORT: port }), /WEB_PORT/);
+  }
+  assert.throws(() => readPublicConfig({ TRACKING_WINDOW_DAYS: '100000000' }), /retention window/);
+});

@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { Video } from './types.js';
+import type { Snapshot, Video, VideoSummary } from './types.js';
 
 export class Store {
   private readonly db: DatabaseSync;
@@ -66,6 +66,50 @@ export class Store {
       this.db.exec('ROLLBACK');
       throw error;
     }
+  }
+
+  pruneExpired(channelId: string, now: Date, retentionMs: number): number {
+    const cutoff = new Date(now.getTime() - retentionMs).toISOString();
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      // Explicit deletes also work with databases created before retention was added.
+      this.db.prepare(`
+        DELETE FROM view_snapshots WHERE video_id IN (
+          SELECT id FROM videos WHERE channel_id = ? AND published_at < ?
+        )
+      `).run(channelId, cutoff);
+      const result = this.db.prepare('DELETE FROM videos WHERE channel_id = ? AND published_at < ?')
+        .run(channelId, cutoff);
+      this.db.exec('COMMIT');
+      return Number(result.changes);
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  listVideos(channelId: string): VideoSummary[] {
+    return this.db.prepare(`
+      SELECT v.*, a.first_observed_at, a.last_observed_at, a.observations, s.view_count
+      FROM videos v JOIN (
+        SELECT video_id, min(observed_at) AS first_observed_at,
+          max(observed_at) AS last_observed_at, count(*) AS observations
+        FROM view_snapshots GROUP BY video_id
+      ) a ON a.video_id = v.id
+      JOIN view_snapshots s ON s.video_id = v.id AND s.observed_at = a.last_observed_at
+      WHERE v.channel_id = ? ORDER BY v.published_at DESC, v.id
+    `).all(channelId).map((row) => ({
+      id: String(row.id), channelId: String(row.channel_id), title: String(row.title),
+      publishedAt: String(row.published_at), firstObservedAt: String(row.first_observed_at),
+      lastObservedAt: String(row.last_observed_at), viewCount: String(row.view_count),
+      observations: Number(row.observations),
+    }));
+  }
+
+  history(videoId: string): Snapshot[] {
+    return this.db.prepare(`
+      SELECT observed_at, view_count FROM view_snapshots WHERE video_id = ? ORDER BY observed_at
+    `).all(videoId).map((row) => ({ observedAt: String(row.observed_at), viewCount: String(row.view_count) }));
   }
 
   *csv(): Generator<string> {

@@ -139,3 +139,18 @@ test('an aborted collection does not write observations', async (t) => {
   await assert.rejects(collector.collect(abort.signal), { name: 'AbortError' });
   assert.equal([...store.csv()].length, 1);
 });
+
+test('automatic cleanup runs even when YouTube is unavailable', async (t) => {
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  store.record([
+    video({ id: 'expired', publishedAt: new Date(NOW.getTime() - 29 * DAY_MS).toISOString() }),
+    video({ id: 'archived', publishedAt: new Date(NOW.getTime() - 20 * DAY_MS).toISOString() }),
+  ], NOW.toISOString());
+  const collector = new Collector(CONFIG, {
+    recentVideoIds: async () => { throw new Error('offline'); }, videos: async () => [],
+  }, store, () => NOW);
+  await assert.rejects(collector.collect(), /offline/);
+  assert.equal(store.history('expired').length, 0);
+  assert.equal(store.history('archived').length, 1);
+});

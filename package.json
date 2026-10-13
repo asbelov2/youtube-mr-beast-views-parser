@@ -8,18 +8,25 @@
     "node": ">=24.19.0"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && npm run build:web",
+    "build:web": "node scripts/build-web.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
     "start": "node --use-env-proxy --env-file-if-exists=.env dist/index.js",
-    "dev": "tsx --use-env-proxy --env-file-if-exists=.env src/index.ts",
+    "dev": "npm run build:web && tsx --use-env-proxy --env-file-if-exists=.env src/index.ts",
+    "web": "node --use-env-proxy --env-file-if-exists=.env dist/index.js --web-only",
+    "report": "node --use-env-proxy --env-file-if-exists=.env dist/index.js --report",
     "collect": "node --use-env-proxy --env-file-if-exists=.env dist/index.js --once",
     "export": "node --use-env-proxy --env-file-if-exists=.env dist/index.js --export-csv",
     "test": "tsx --test tests/*.test.ts",
-    "check": "npm run typecheck && npm test && npm run build"
+    "check": "npm run typecheck && npm run build && npm test"
+  },
+  "dependencies": {
+    "chart.js": "^4.5.1"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "tsx": "^4.20.0",
+    "esbuild": "^0.28.2",
     "typescript": "^5.9.0"
   }
 }

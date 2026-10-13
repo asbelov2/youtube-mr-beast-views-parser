@@ -14,6 +14,22 @@ export interface CollectionResult {
   skipped: number;
 }
 
+export interface Snapshot {
+  observedAt: string;
+  viewCount: string;
+}
+
+export interface VideoSummary {
+  id: string;
+  channelId: string;
+  title: string;
+  publishedAt: string;
+  firstObservedAt: string;
+  lastObservedAt: string;
+  viewCount: string;
+  observations: number;
+}
+
 export function isWithinTrackingWindow(
   publishedAt: string,
   now: Date,

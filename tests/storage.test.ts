@@ -45,3 +45,30 @@ test('rolls back the entire database transaction if a write fails', (t) => {
   assert.equal([...store.csv()].length, 1);
   assert.deepEqual(store.activeVideoIds(MRBEAST_CHANNEL_ID, NOW, 14 * DAY_MS), []);
 });
+
+test('retention deletes a video and all snapshots only after twice the tracking window', (t) => {
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  store.record([
+    video({ id: 'expired', publishedAt: new Date(NOW.getTime() - 28 * DAY_MS - 1).toISOString() }),
+    video({ id: 'boundary', publishedAt: new Date(NOW.getTime() - 28 * DAY_MS).toISOString() }),
+    video({ id: 'archived', publishedAt: new Date(NOW.getTime() - 20 * DAY_MS).toISOString() }),
+    video({ id: 'other', channelId: 'another-channel', publishedAt: new Date(NOW.getTime() - 40 * DAY_MS).toISOString() }),
+  ], NOW.toISOString());
+  assert.equal(store.pruneExpired(MRBEAST_CHANNEL_ID, NOW, 28 * DAY_MS), 1);
+  assert.deepEqual(store.history('expired'), []);
+  assert.equal(store.history('boundary').length, 1);
+  assert.equal(store.history('archived').length, 1);
+  assert.equal(store.history('other').length, 1);
+  assert.equal(store.pruneExpired(MRBEAST_CHANNEL_ID, NOW, 28 * DAY_MS), 0);
+  assert.equal(store.listVideos(MRBEAST_CHANNEL_ID).length, 2);
+  assert.doesNotMatch([...store.csv()].join(''), /expired/);
+});
+
+test('retention follows a changed tracking window rather than a hard-coded 28 days', (t) => {
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  store.record([video({ publishedAt: new Date(NOW.getTime() - 20 * DAY_MS).toISOString() })], NOW.toISOString());
+  assert.equal(store.pruneExpired(MRBEAST_CHANNEL_ID, NOW, 42 * DAY_MS), 0);
+  assert.equal(store.pruneExpired(MRBEAST_CHANNEL_ID, NOW, 14 * DAY_MS), 1);
+});

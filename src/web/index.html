@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Beast Metrics — просмотры и прогноз</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Beast Metrics, главная"><span class="brand-icon"><svg viewBox="0 0 48 48" aria-hidden="true"><path d="m12 33 10-11 7 6 9-16M28 12h10v10" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>BEAST<span class="brand-light">METRICS</span></span></a>
+    <div class="top-actions"><span class="live-indicator"><span class="live-dot"></span>История просмотров</span><a class="export-link" href="/api/export.csv">Скачать CSV <span aria-hidden="true">↓</span></a></div>
+  </header>
+  <main>
+    <div class="page-heading"><div><p class="eyebrow">MRBEAST · YOUTUBE ANALYTICS</p><h1>Как растут просмотры</h1><p class="page-subtitle">Наблюдайте динамику. Сравнивайте периоды. Исследуйте прогноз.</p></div><button id="refresh" class="secondary-button">Обновить данные <span aria-hidden="true">↻</span></button></div>
+    <div id="global-error" class="alert error" role="alert" hidden></div>
+    <div class="workspace">
+      <aside class="sidebar"><div class="sidebar-heading"><h2>Видео</h2><span id="video-count" class="count">—</span></div><div id="video-list" class="video-list" aria-label="Выбор видео"><p class="muted">Загрузка…</p></div><p id="collection-info" class="sidebar-note"></p></aside>
+      <section id="empty-state" class="empty-state" hidden><span class="empty-symbol">↗</span><h2>История начинается здесь</h2><p>Видео появятся после первого успешного сбора статистики.</p></section>
+      <section id="video-panel" class="video-panel" hidden aria-label="Статистика выбранного видео">
+        <div class="video-heading"><div><span id="tracking-status" class="status-pill"></span><h2 id="video-title"></h2><p id="video-meta" class="muted"></p></div><a id="youtube-link" class="external-link" target="_blank" rel="noopener noreferrer">На YouTube</a></div>
+        <div class="metrics">
+          <article class="metric"><span class="metric-label">Число просмотров</span><strong id="current-views">—</strong><span id="last-observed" class="metric-caption"></span></article>
+          <article class="metric"><span id="growth-label" class="metric-label">Прирост за 1 час</span><strong id="growth-views" class="cyan">—</strong><span id="growth-percent" class="metric-caption"></span></article>
+          <article class="metric"><span class="metric-label">Средний прирост / час</span><strong id="growth-rate">—</strong><span id="growth-change" class="metric-caption"></span></article>
+          <article class="metric"><span id="forecast-label" class="metric-label">Прогноз через 1 час</span><strong id="forecast-views" class="amber">—</strong><span id="forecast-date" class="metric-caption"></span></article>
+        </div>
+        <section class="chart-card">
+          <div class="chart-top"><div><h3>Просмотры во времени</h3><p class="muted" id="history-range"></p></div><div class="legend"><span><i class="legend-real"></i>Фактические данные</span><span><i class="legend-model"></i>Аппроксимация и прогноз</span></div></div>
+          <div class="chart-controls">
+            <label>Модель<select id="model"><option value="auto">Автоматический выбор</option><option value="linear">Линейная</option><option value="logarithmic">Логарифмическая</option><option value="saturation">С насыщением</option></select></label>
+            <label>Горизонт прогноза<select id="forecast-horizon"><option value="1" selected>1 час</option><option value="6">6 часов</option><option value="24">24 часа</option><option value="48">2 дня</option><option value="72">3 дня</option><option value="96">4 дня</option><option value="168">1 неделя</option></select></label>
+            <span class="forecast-explanation">Вертикальная линия — последний реальный замер.</span>
+          </div>
+          <div class="chart-wrap"><canvas id="views-chart" role="img" aria-label="График фактических просмотров и аппроксимирующей функции"></canvas></div>
+          <div id="model-unavailable" class="alert" hidden></div>
+          <div id="forecast-warnings" class="forecast-warnings" aria-live="polite"></div>
+          <details id="model-details" class="model-details"><summary id="model-summary">О модели</summary><p id="model-formula" class="formula"></p><p id="formula-origin" class="muted"></p><p id="model-quality" class="muted"></p><p class="muted">Аппроксимация описывает наблюдаемый тренд. Высокое соответствие прошлым точкам не гарантирует точность будущего прогноза.</p></details>
+        </section>
+        <section class="comparison-card"><div class="section-heading"><div><h3>Сравнить с прошлым</h3><p class="muted">Изменение просмотров и скорости прироста между наблюдениями.</p></div></div>
+          <div id="periods" class="periods" role="group" aria-label="Период сравнения"><button data-hours="1" class="selected" aria-pressed="true">1 ч</button><button data-hours="6" aria-pressed="false">6 ч</button><button data-hours="24" aria-pressed="false">24 ч</button><button data-hours="48" aria-pressed="false">2 дня</button><button data-hours="72" aria-pressed="false">3 дня</button><button data-hours="96" aria-pressed="false">4 дня</button><button data-hours="168" aria-pressed="false">Неделя</button></div>
+          <form id="custom-comparison" class="custom-comparison"><label>Или выберите дату и время<input id="compare-date" type="datetime-local" step="0.001" required></label><button type="submit" class="secondary-button">Сравнить</button></form>
+          <div id="comparison-result" class="comparison-result" aria-live="polite"></div>
+        </section>
+        <details class="observations-card"><summary>Сохранённые наблюдения <span id="observations-count" class="count"></span></summary><div class="table-scroll"><table><thead><tr><th>Дата и время</th><th>Просмотры</th></tr></thead><tbody id="observations"></tbody></table></div><p class="muted">Показаны последние 100 наблюдений. Полная история доступна в CSV.</p></details>
+      </section>
+    </div>
+    <footer><span id="retention-note"></span><span>Время указано по часам вашего браузера.</span></footer>
+  </main>
+</body>
+</html>

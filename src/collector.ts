@@ -1,4 +1,4 @@
-import type { Config } from './config.js';
+import { RETENTION_WINDOW_MULTIPLIER, type Config } from './config.js';
 import type { Store } from './storage.js';
 import { isWithinTrackingWindow, type CollectionResult } from './types.js';
 import type { YouTubeClient } from './youtube.js';
@@ -15,6 +15,9 @@ export class Collector {
 
   async collect(signal?: AbortSignal): Promise<CollectionResult> {
     const startedAt = this.now();
+    this.store.pruneExpired(
+      this.config.channelId, startedAt, this.config.trackingWindowMs * RETENTION_WINDOW_MULTIPLIER,
+    );
     const cutoff = new Date(startedAt.getTime() - this.config.trackingWindowMs);
     const fullScan = this.lastFullDiscoveryAt === undefined ||
       startedAt.getTime() - this.lastFullDiscoveryAt >= this.config.fullDiscoveryIntervalMs;
