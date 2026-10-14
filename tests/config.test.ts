@@ -1,13 +1,24 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DAY_MS, MRBEAST_CHANNEL_ID, readConfig, readPublicConfig } from '../src/config.js';
+import { DAY_MS, MRBEAST_CHANNEL_ID, MRBEAST_GAMING_CHANNEL_ID, readConfig, readPublicConfig } from '../src/config.js';
 
-test('defaults to MrBeast, 14 days and five minutes', () => {
+test('defaults to both official channels, 14 days and five minutes', () => {
   const config = readConfig({ YOUTUBE_API_KEY: 'test-key' });
-  assert.equal(config.channelId, MRBEAST_CHANNEL_ID);
+  assert.deepEqual(config.channelIds, [MRBEAST_CHANNEL_ID, MRBEAST_GAMING_CHANNEL_ID]);
   assert.equal(config.trackingWindowMs, 14 * DAY_MS);
   assert.equal(config.pollIntervalMs, 5 * 60_000);
   assert.equal(config.fullDiscoveryIntervalMs, 60 * 60_000);
+});
+
+test('deduplicates channel lists and gives them precedence over the legacy single-channel setting', () => {
+  assert.deepEqual(readPublicConfig({ YOUTUBE_CHANNEL_ID: MRBEAST_CHANNEL_ID }).channelIds, [MRBEAST_CHANNEL_ID]);
+  assert.deepEqual(readPublicConfig({
+    YOUTUBE_CHANNEL_ID: MRBEAST_CHANNEL_ID,
+    YOUTUBE_CHANNEL_IDS: ` ${MRBEAST_GAMING_CHANNEL_ID}, ${MRBEAST_GAMING_CHANNEL_ID} `,
+  }).channelIds, [MRBEAST_GAMING_CHANNEL_ID]);
+  for (const value of [`${MRBEAST_CHANNEL_ID},`, `,${MRBEAST_CHANNEL_ID}`, '@MrBeastGaming']) {
+    assert.throws(() => readPublicConfig({ YOUTUBE_CHANNEL_IDS: value }), /channel ID/);
+  }
 });
 
 test('supports configurable window and fractional intervals', () => {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { resolve } from 'node:path';
 import test, { type TestContext } from 'node:test';
-import { readPublicConfig } from '../src/config.js';
+import { MRBEAST_CHANNEL_ID, MRBEAST_GAMING_CHANNEL_ID, readPublicConfig } from '../src/config.js';
 import type { DashboardIndex, DashboardVideo } from '../src/dashboard-types.js';
 import { createDashboardServer } from '../src/server.js';
 import { Store } from '../src/storage.js';
@@ -94,4 +94,18 @@ test('an empty database is valid and does not create example or fabricated data'
   const { base } = await fixture(t, true);
   const data = await (await fetch(`${base}/api/videos`)).json() as DashboardIndex;
   assert.deepEqual(data.videos, []);
+});
+
+test('both channels appear in publication order and Gaming history is accessible without unrelated channels', async (t) => {
+  const { base, store } = await fixture(t);
+  const gaming = video({ id: 'gaming-video', channelId: MRBEAST_GAMING_CHANNEL_ID, publishedAt: NOW.toISOString() });
+  store.record([gaming, video({ id: 'unrelated', channelId: 'another-channel' })], NOW.toISOString());
+  const data = await (await fetch(`${base}/api/videos`)).json() as DashboardIndex;
+  assert.deepEqual(data.videos.map((item) => item.channelId), [MRBEAST_GAMING_CHANNEL_ID, MRBEAST_CHANNEL_ID]);
+  assert.equal(data.videos[0]!.publishedAt, NOW.toISOString());
+  const detail = await (await fetch(`${base}/api/videos/gaming-video`)).json() as DashboardVideo;
+  assert.equal(detail.video.channelId, MRBEAST_GAMING_CHANNEL_ID);
+  assert.equal(detail.history[0]!.viewCount, gaming.viewCount);
+  assert.equal((await fetch(`${base}/api/videos/unrelated`)).status, 404);
+  assert.deepEqual(store.listVideos([]), []);
 });

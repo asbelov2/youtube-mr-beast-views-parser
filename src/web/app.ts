@@ -1,6 +1,7 @@
 import { Chart, LineController, LineElement, PointElement, LinearScale, Tooltip, type Plugin } from 'chart.js';
 import type { ModelChoice } from '../analytics.js';
 import type { DashboardIndex, DashboardVideo } from '../dashboard-types.js';
+import { channelName } from '../channels.js';
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, Tooltip);
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -68,13 +69,18 @@ function renderList() {
     const button = document.createElement('button');
     button.className = `video-option${video.id === selectedId ? ' selected' : ''}`;
     button.setAttribute('aria-pressed', String(video.id === selectedId));
+    const channel = document.createElement('span');
+    channel.className = 'video-option-channel'; channel.textContent = channelName(video.channelId);
     const title = document.createElement('span');
     title.className = 'video-option-title'; title.textContent = video.title;
+    const published = document.createElement('time');
+    published.className = 'video-option-published'; published.dateTime = video.publishedAt;
+    published.textContent = `Опубликовано ${dateTime(video.publishedAt)}`;
     const meta = document.createElement('span'); meta.className = 'video-option-meta';
     const views = document.createElement('span'); views.className = 'video-option-views'; views.textContent = integer(video.viewCount);
     const state = document.createElement('span'); state.className = `video-state${video.tracking ? '' : ' archived'}`;
     state.textContent = video.tracking ? 'Сбор идёт' : 'Архив';
-    meta.append(views, state); button.append(title, meta);
+    meta.append(views, state); button.append(channel, title, published, meta);
     button.addEventListener('click', () => {
       selectedId = video.id;
       const url = new URL(location.href); url.searchParams.set('video', video.id);
@@ -95,6 +101,9 @@ function renderChart(data: DashboardVideo) {
   const measured = data.history.filter((point) => Number.isSafeInteger(Number(point.viewCount)))
     .map((point) => ({ x: Date.parse(point.observedAt), y: Number(point.viewCount) }));
   const curve = data.forecast.curve.map((point) => ({ x: Date.parse(point.time), y: point.views }));
+  // A single timestamp must not expand into months around a Unix timestamp.
+  const singlePointRange = measured.length === 1 && curve.length === 0
+    ? { min: measured[0]!.x - 30 * 60_000, max: measured[0]!.x + 30 * 60_000 } : {};
   chart?.destroy();
   chart = new Chart($<HTMLCanvasElement>('views-chart'), {
     type: 'line',
@@ -107,7 +116,7 @@ function renderChart(data: DashboardVideo) {
       responsive: true, maintainAspectRatio: false, animation: false, parsing: false,
       interaction: { mode: 'nearest', intersect: false },
       scales: {
-        x: { type: 'linear', grid: { color: '#23304755' }, border: { display: false }, ticks: {
+        x: { type: 'linear', ...singlePointRange, grid: { color: '#23304755' }, border: { display: false }, ticks: {
           color: '#788ca9', maxTicksLimit: 7, maxRotation: 0, font: { size: 10 },
           callback: (value) => new Date(Number(value)).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }),
         } },
@@ -134,7 +143,7 @@ function renderVideo(data: DashboardVideo) {
   text('video-title', video.title);
   text('tracking-status', tracking ? 'ОТСЛЕЖИВАЕТСЯ' : 'СБОР ЗАВЕРШЁН');
   $('tracking-status').classList.toggle('archived', !tracking);
-  text('video-meta', `Опубликовано ${dateTime(video.publishedAt)} · ${video.observations} наблюдений`);
+  text('video-meta', `${channelName(video.channelId)} · Опубликовано ${dateTime(video.publishedAt)} · ${video.observations} наблюдений`);
   $<HTMLAnchorElement>('youtube-link').href = `https://www.youtube.com/watch?v=${encodeURIComponent(video.id)}`;
   text('current-views', integer(video.viewCount));
   const stale = tracking && index && Date.now() - Date.parse(video.lastObservedAt) > index.pollIntervalMinutes * 120_000;

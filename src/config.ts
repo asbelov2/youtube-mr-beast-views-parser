@@ -1,16 +1,18 @@
 import { resolve } from 'node:path';
+import { DEFAULT_CHANNEL_IDS } from './channels.js';
+
+export { MRBEAST_CHANNEL_ID, MRBEAST_GAMING_CHANNEL_ID } from './channels.js';
 
 export const DEFAULT_TRACKING_WINDOW_DAYS = 14;
 export const DEFAULT_POLL_INTERVAL_MINUTES = 5;
 export const DEFAULT_FULL_DISCOVERY_INTERVAL_MINUTES = 60;
 export const RETENTION_WINDOW_MULTIPLIER = 2;
-export const MRBEAST_CHANNEL_ID = 'UCX6OQ3DkcsbYNE6H8uQQuVA';
 export const DAY_MS = 24 * 60 * 60 * 1_000;
 const MINUTE_MS = 60 * 1_000;
 
 export interface Config {
   apiKey: string;
-  channelId: string;
+  channelIds: string[];
   trackingWindowMs: number;
   pollIntervalMs: number;
   fullDiscoveryIntervalMs: number;
@@ -44,9 +46,11 @@ export function databasePath(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 export function readPublicConfig(env: NodeJS.ProcessEnv = process.env): PublicConfig {
-  const channelId = env.YOUTUBE_CHANNEL_ID?.trim() || MRBEAST_CHANNEL_ID;
-  if (!/^UC[A-Za-z0-9_-]{22}$/.test(channelId)) {
-    throw new Error('YOUTUBE_CHANNEL_ID must be a YouTube channel ID starting with UC.');
+  // The plural setting takes precedence; preserve explicit single-channel configurations.
+  const configured = env.YOUTUBE_CHANNEL_IDS?.trim() || env.YOUTUBE_CHANNEL_ID?.trim();
+  const channelIds = [...new Set(configured ? configured.split(',').map((id) => id.trim()) : DEFAULT_CHANNEL_IDS)];
+  if (channelIds.some((id) => !/^UC[A-Za-z0-9_-]{22}$/.test(id))) {
+    throw new Error('YOUTUBE_CHANNEL_IDS (or legacy YOUTUBE_CHANNEL_ID) must contain valid YouTube channel IDs starting with UC.');
   }
   const webPort = Number(env.WEB_PORT?.trim() || 3000);
   if (!Number.isInteger(webPort) || webPort < 0 || webPort > 65535) {
@@ -57,7 +61,7 @@ export function readPublicConfig(env: NodeJS.ProcessEnv = process.env): PublicCo
     throw new Error('TRACKING_WINDOW_DAYS is too large for the retention window.');
   }
   return {
-    channelId,
+    channelIds,
     trackingWindowMs,
     pollIntervalMs: duration(env, 'POLL_INTERVAL_MINUTES', DEFAULT_POLL_INTERVAL_MINUTES, MINUTE_MS),
     fullDiscoveryIntervalMs: duration(

@@ -88,7 +88,9 @@ export class Store {
     }
   }
 
-  listVideos(channelId: string): VideoSummary[] {
+  listVideos(channelIds: string | readonly string[]): VideoSummary[] {
+    const ids = typeof channelIds === 'string' ? [channelIds] : channelIds;
+    if (ids.length === 0) return [];
     return this.db.prepare(`
       SELECT v.*, a.first_observed_at, a.last_observed_at, a.observations, s.view_count
       FROM videos v JOIN (
@@ -97,8 +99,8 @@ export class Store {
         FROM view_snapshots GROUP BY video_id
       ) a ON a.video_id = v.id
       JOIN view_snapshots s ON s.video_id = v.id AND s.observed_at = a.last_observed_at
-      WHERE v.channel_id = ? ORDER BY v.published_at DESC, v.id
-    `).all(channelId).map((row) => ({
+      WHERE v.channel_id IN (${ids.map(() => '?').join(',')}) ORDER BY v.published_at DESC, v.id
+    `).all(...ids).map((row) => ({
       id: String(row.id), channelId: String(row.channel_id), title: String(row.title),
       publishedAt: String(row.published_at), firstObservedAt: String(row.first_observed_at),
       lastObservedAt: String(row.last_observed_at), viewCount: String(row.view_count),

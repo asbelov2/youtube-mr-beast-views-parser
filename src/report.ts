@@ -11,7 +11,7 @@ export async function writeReport(store: Store, config: PublicConfig, output: st
     readFile(resolve(assets, 'index.html'), 'utf8'), readFile(resolve(assets, 'style.css'), 'utf8'),
     readFile(resolve(assets, 'offline.js'), 'utf8'), readFile(resolve(assets, 'favicon.svg')),
   ]);
-  const videos = store.listVideos(config.channelId);
+  const videos = store.listVideos(config.channelIds);
   const data: OfflineData = {
     index: {
       videos: videos.map((video) => ({ ...video,

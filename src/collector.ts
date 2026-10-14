@@ -7,7 +7,7 @@ export class Collector {
   private lastFullDiscoveryAt: number | undefined;
 
   constructor(
-    private readonly config: Pick<Config, 'channelId' | 'trackingWindowMs' | 'fullDiscoveryIntervalMs'>,
+    private readonly config: Pick<Config, 'trackingWindowMs' | 'fullDiscoveryIntervalMs'> & { channelId: string },
     private readonly youtube: Pick<YouTubeClient, 'recentVideoIds' | 'videos'>,
     private readonly store: Store,
     private readonly now: () => Date = () => new Date(),

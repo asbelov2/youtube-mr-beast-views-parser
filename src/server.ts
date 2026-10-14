@@ -53,7 +53,7 @@ export function createDashboardServer(options: ServerOptions): Server {
       if (url.pathname === '/api/videos') {
         const current = now();
         const payload: DashboardIndex = {
-          videos: options.store.listVideos(options.config.channelId).map((video) => ({
+          videos: options.store.listVideos(options.config.channelIds).map((video) => ({
             ...video, tracking: isWithinTrackingWindow(video.publishedAt, current, options.config.trackingWindowMs),
           })),
           generatedAt: current.toISOString(),
@@ -66,7 +66,7 @@ export function createDashboardServer(options: ServerOptions): Server {
       }
       if (url.pathname.startsWith('/api/videos/')) {
         const id = decodeURIComponent(url.pathname.slice('/api/videos/'.length));
-        const video = options.store.listVideos(options.config.channelId).find((item) => item.id === id);
+        const video = options.store.listVideos(options.config.channelIds).find((item) => item.id === id);
         if (!video) throw new RequestError(404, 'Видео не найдено.');
         const history = options.store.history(id);
         const compareAt = url.searchParams.get('compareAt');
