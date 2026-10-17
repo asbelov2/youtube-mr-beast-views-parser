@@ -1,4 +1,4 @@
-import type { Comparison, Forecast } from './analytics.js';
+import type { Comparison, DayComparison, Forecast } from './analytics.js';
 import type { Snapshot, VideoSummary } from './types.js';
 
 export interface DashboardIndex {
@@ -13,6 +13,7 @@ export interface DashboardVideo {
   video: VideoSummary;
   history: Snapshot[];
   comparison: Comparison;
+  dayComparison: DayComparison;
   forecast: Forecast;
 }
 

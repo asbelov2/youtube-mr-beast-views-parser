@@ -1,4 +1,4 @@
-import { compareGrowth, forecastViews, type ModelChoice } from '../analytics.js';
+import { compareDayAgo, compareGrowth, forecastViews, type ModelChoice } from '../analytics.js';
 import type { OfflineData } from '../dashboard-types.js';
 
 const data = JSON.parse(document.getElementById('offline-data')!.textContent!) as OfflineData;
@@ -28,8 +28,10 @@ globalThis.fetch = async (input, init) => {
       const compareAt = url.searchParams.get('compareAt');
       const requestedAt = compareAt ? new Date(compareAt)
         : new Date(Date.parse(video.lastObservedAt) - Number(url.searchParams.get('compareHours') ?? 24) * 3_600_000);
+      const comparison = compareGrowth(history, requestedAt);
       body = {
-        video, history, comparison: compareGrowth(history, requestedAt),
+        video, history, comparison,
+        dayComparison: compareDayAgo(history, comparison, data.index.pollIntervalMinutes * 120_000),
         forecast: forecastViews(history, Number(url.searchParams.get('forecastHours') ?? 24),
           (url.searchParams.get('model') ?? 'auto') as ModelChoice, new Date(data.index.generatedAt)),
       };

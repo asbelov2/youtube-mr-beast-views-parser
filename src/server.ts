@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { resolve } from 'node:path';
-import { compareGrowth, forecastViews, type ModelChoice } from './analytics.js';
+import { compareDayAgo, compareGrowth, forecastViews, type ModelChoice } from './analytics.js';
 import { DAY_MS, RETENTION_WINDOW_MULTIPLIER, type PublicConfig } from './config.js';
 import type { DashboardIndex, DashboardVideo } from './dashboard-types.js';
 import type { Store } from './storage.js';
@@ -81,8 +81,10 @@ export function createDashboardServer(options: ServerOptions): Server {
         if (!['auto', 'linear', 'logarithmic', 'saturation'].includes(model)) {
           throw new RequestError(400, 'Неизвестная модель аппроксимации.');
         }
+        const comparison = compareGrowth(history, requestedAt);
         const payload: DashboardVideo = {
-          video, history, comparison: compareGrowth(history, requestedAt),
+          video, history, comparison,
+          dayComparison: compareDayAgo(history, comparison, options.config.pollIntervalMs * 2),
           forecast: forecastViews(history, hours(url.searchParams.get('forecastHours'), 24), model as ModelChoice, now()),
         };
         json(200, payload);

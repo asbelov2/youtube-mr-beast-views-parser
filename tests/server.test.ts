@@ -8,15 +8,15 @@ import { createDashboardServer } from '../src/server.js';
 import { Store } from '../src/storage.js';
 import { NOW, video } from './helpers.js';
 
-async function fixture(t: TestContext, empty = false) {
+async function fixture(t: TestContext, empty = false, lastHour = 12) {
   const store = new Store(':memory:');
   t.after(() => store.close());
-  if (!empty) for (let i = 0; i <= 12; i++) {
+  if (!empty) for (let i = 0; i <= lastHour; i++) {
     store.record([video({ viewCount: String(1_000_000 + 100 * i) })], new Date(NOW.getTime() + i * 3_600_000).toISOString());
   }
   const server = createDashboardServer({
     store, config: readPublicConfig({ WEB_PORT: '0' }), webRoot: resolve('src/web'),
-    now: () => new Date(NOW.getTime() + 13 * 3_600_000),
+    now: () => new Date(NOW.getTime() + (lastHour + 1) * 3_600_000),
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -48,10 +48,30 @@ test('detail API supplies history, interval comparison and a fitted future curve
   assert.equal(data.history.length, 13);
   assert.equal(data.comparison.viewDelta, '100');
   assert.equal(data.comparison.growthChangePercent, 0);
+  assert.equal(data.dayComparison.available, false);
   assert.equal(data.forecast.model, 'linear');
   assert.equal(data.forecast.curve.length, 161);
   assert.equal(data.forecast.predictedViews, 1_001_400);
   assert.equal(data.forecast.predictedAt, new Date(NOW.getTime() + 14 * 3_600_000).toISOString());
+});
+
+test('comparison API supports new presets, arbitrary hours and the same interval yesterday', async (t) => {
+  const { base } = await fixture(t, false, 48);
+  for (const hours of [2, 3, 4, 8, 12, 13]) {
+    const response = await fetch(`${base}/api/videos/fresh-video?compareHours=${hours}`);
+    assert.equal(response.status, 200);
+    const data = await response.json() as DashboardVideo;
+    assert.equal(data.comparison.viewDelta, String(hours * 100));
+    assert.equal(data.dayComparison.available, true);
+    assert.equal(data.dayComparison.viewDelta, String(hours * 100));
+    assert.equal(data.dayComparison.viewsPerHour, 100);
+    assert.equal(data.dayComparison.viewDeltaChangePercent, 0);
+    assert.equal(data.dayComparison.rateChangePercent, 0);
+  }
+  const query = new URLSearchParams({ compareAt: new Date(NOW.getTime() + 35 * 3_600_000).toISOString() });
+  const custom = await (await fetch(`${base}/api/videos/fresh-video?${query}`)).json() as DashboardVideo;
+  assert.equal(custom.dayComparison.viewDelta, '1300');
+  assert.equal((await fetch(`${base}/api/videos/fresh-video?compareHours=13.5`)).status, 200);
 });
 
 test('custom time, missing history and unknown videos have distinct outcomes', async (t) => {

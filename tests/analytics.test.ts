@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { compareGrowth, forecastViews } from '../src/analytics.js';
+import { compareDayAgo, compareGrowth, forecastViews } from '../src/analytics.js';
 import type { Snapshot } from '../src/types.js';
 import { NOW } from './helpers.js';
 
@@ -62,6 +62,72 @@ test('zero previous growth has no fabricated acceleration percentage', () => {
   const result = compareGrowth(history, new Date(history[1]!.observedAt));
   assert.equal(result.previousPeriodDelta, '0');
   assert.equal(result.growthChangePercent, null);
+});
+
+test('thirteen-hour growth compares with the same window ending 24 hours earlier', () => {
+  const history = series(49, (h) => 1_000 + 100 * h ** 2);
+  const current = compareGrowth(history, new Date(history[35]!.observedAt));
+  const yesterday = compareDayAgo(history, current);
+  assert.equal(yesterday.available, true);
+  assert.equal(yesterday.requestedStartAt, history[11]!.observedAt);
+  assert.equal(yesterday.requestedEndAt, history[24]!.observedAt);
+  assert.equal(yesterday.referenceAt, history[11]!.observedAt);
+  assert.equal(yesterday.currentAt, history[24]!.observedAt);
+  assert.equal(current.viewDelta, '107900');
+  assert.equal(yesterday.viewDelta, '45500');
+  assert.equal(yesterday.viewDeltaChange, '62400');
+  assert.equal(yesterday.viewDeltaChangePercent, 137.1428);
+  assert.equal(yesterday.rateChangePercent, 137.1428);
+  assert.equal(yesterday.viewsPerHour, 3500);
+  assert.notEqual(yesterday.viewDelta, current.previousPeriodDelta);
+});
+
+test('daily rate comparison accounts for unequal polling intervals', () => {
+  const history = [0, 1, 24, 25 + 5 / 60].map((h, i) => ({
+    observedAt: new Date(NOW.getTime() + h * 3_600_000).toISOString(),
+    viewCount: ['1000', '1120', '3880', '4010'][i]!,
+  }));
+  const current = compareGrowth(history, new Date(NOW.getTime() + (24 + 5 / 60) * 3_600_000));
+  const yesterday = compareDayAgo(history, current);
+  assert.equal(current.viewsPerHour, 120);
+  assert.equal(yesterday.viewsPerHour, 120);
+  assert.equal(yesterday.viewDeltaChangePercent, 8.3333);
+  assert.equal(yesterday.rateChangePercent, 0);
+});
+
+test('daily comparisons require history near both target boundaries and distinct observations', () => {
+  const short = series(3, (h) => 1000 + h * 100);
+  assert.equal(compareDayAgo(short, compareGrowth(short, NOW)).available, false);
+  const sparse = [0, 40, 41].map((h) => ({ observedAt: new Date(NOW.getTime() + h * 3_600_000).toISOString(), viewCount: String(1000 + h * 100) }));
+  const missing = compareDayAgo(sparse, compareGrowth(sparse, new Date(sparse[1]!.observedAt)));
+  assert.equal(missing.available, false);
+  assert.match(missing.reason!, /близких замеров/);
+  const history = series(49, (h) => 1000 + h * 100);
+  assert.equal(compareDayAgo(history, compareGrowth(history, new Date(history.at(-1)!.observedAt))).available, false);
+});
+
+test('daily growth remains exact for large counters and has no percentages for a zero or negative baseline', () => {
+  const base = 900719925474099312345n;
+  for (const priorDelta of [0n, -10n, 120n]) {
+    const history = [0, 1, 24, 25].map((h, i) => ({
+      observedAt: new Date(NOW.getTime() + h * 3_600_000).toISOString(),
+      viewCount: (base + [0n, priorDelta, 2400n, 2640n][i]!).toString(),
+    }));
+    const result = compareDayAgo(history, compareGrowth(history, new Date(history[2]!.observedAt)));
+    assert.equal(result.available, true);
+    assert.equal(result.viewDelta, priorDelta.toString());
+    assert.equal(result.viewDeltaChange, (240n - priorDelta).toString());
+    assert.equal(result.viewDeltaChangePercent, priorDelta > 0n ? 100 : null);
+    assert.equal(result.rateChangePercent, priorDelta > 0n ? 100 : null);
+  }
+});
+
+test('daily comparison also shifts windows longer than a day by 24 hours', () => {
+  const history = series(73, (h) => 1000 + h * h * 100);
+  const result = compareDayAgo(history, compareGrowth(history, new Date(history[24]!.observedAt)));
+  assert.equal(result.referenceAt, history[0]!.observedAt);
+  assert.equal(result.currentAt, history[48]!.observedAt);
+  assert.equal(result.viewDeltaChangePercent, 100);
 });
 
 test('linear regression recovers a known slope and extrapolates to the requested time', () => {

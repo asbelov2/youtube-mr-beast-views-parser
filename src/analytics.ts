@@ -64,6 +64,55 @@ export function compareGrowth(history: Snapshot[], requestedAt: Date): Compariso
   };
 }
 
+export interface DayComparison {
+  available: boolean;
+  reason: string | null;
+  requestedStartAt: string | null;
+  requestedEndAt: string | null;
+  referenceAt: string | null;
+  currentAt: string | null;
+  viewDelta: string | null;
+  viewsPerHour: number | null;
+  viewDeltaChange: string | null;
+  viewDeltaChangePercent: number | null;
+  rateChangePercent: number | null;
+}
+
+/** The selected window shifted by exactly 24 hours, using real observations only. */
+export function compareDayAgo(history: Snapshot[], current: Comparison, maxSampleLagMs = 15 * 60_000): DayComparison {
+  const empty: DayComparison = {
+    available: false, reason: null, requestedStartAt: null, requestedEndAt: null,
+    referenceAt: null, currentAt: null, viewDelta: null, viewsPerHour: null,
+    viewDeltaChange: null, viewDeltaChangePercent: null, rateChangePercent: null,
+  };
+  if (!current.available || !current.currentAt || !current.referenceAt || current.viewDelta === null) {
+    return { ...empty, reason: 'Для сравнения со вчера сначала нужен прирост за выбранный интервал.' };
+  }
+  const startMs = Date.parse(current.requestedAt) - 24 * HOUR_MS;
+  const endMs = Date.parse(current.currentAt) - 24 * HOUR_MS;
+  const result = { ...empty, requestedStartAt: new Date(startMs).toISOString(), requestedEndAt: new Date(endMs).toISOString() };
+  const sorted = [...history].sort((a, b) => Date.parse(a.observedAt) - Date.parse(b.observedAt));
+  const start = sorted.findLast((point) => Date.parse(point.observedAt) <= startMs);
+  const end = sorted.findLast((point) => Date.parse(point.observedAt) <= endMs);
+  if (!start || !end) return { ...result, reason: 'Ещё нет истории за тот же интервал сутками раньше.' };
+  if (startMs - Date.parse(start.observedAt) > maxSampleLagMs || endMs - Date.parse(end.observedAt) > maxSampleLagMs) {
+    return { ...result, reason: 'Нет близких замеров на границах вчерашнего интервала.' };
+  }
+  const elapsedMs = Date.parse(end.observedAt) - Date.parse(start.observedAt);
+  const currentMs = Date.parse(current.currentAt) - Date.parse(current.referenceAt);
+  if (elapsedMs <= 0 || currentMs <= 0) return { ...result, reason: 'Для сравнения со вчера нужны разные замеры на обеих границах интервала.' };
+  const delta = BigInt(end.viewCount) - BigInt(start.viewCount);
+  const currentDelta = BigInt(current.viewDelta);
+  const rate = Number(delta) * HOUR_MS / elapsedMs;
+  return {
+    ...result, available: true, referenceAt: start.observedAt, currentAt: end.observedAt,
+    viewDelta: delta.toString(), viewsPerHour: Number.isFinite(rate) ? rate : null,
+    viewDeltaChange: (currentDelta - delta).toString(), viewDeltaChangePercent: percent(currentDelta - delta, delta),
+    // Compare rates using actual durations when polling timestamps do not align exactly.
+    rateChangePercent: percent(currentDelta * BigInt(elapsedMs) - delta * BigInt(currentMs), delta * BigInt(currentMs)),
+  };
+}
+
 export interface CurvePoint { time: string; views: number }
 
 export interface Forecast {
