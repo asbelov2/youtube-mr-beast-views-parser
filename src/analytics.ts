@@ -230,7 +230,7 @@ export function forecastViews(history: Snapshot[], forecastHours: number, choice
   const xs = points.map((point) => (Date.parse(point.observedAt) - firstMs) / (lastMs - firstMs));
   const ys = points.map((point) => Number(point.viewCount) - baseline);
   const candidates: Candidate[] = [{ kind: 'linear', curvature: 0 }];
-  for (const kind of ['logarithmic', 'saturation'] as const) {
+  for (const kind of ['logarithmic', 'saturation', 'daily-saturation'] as const) {
     for (const curvature of CURVATURES) candidates.push({ kind, curvature });
   }
   let holdoutCount = points.length >= 8 ? Math.max(2, Math.ceil(points.length * 0.2)) : 0;
@@ -238,17 +238,11 @@ export function forecastViews(history: Snapshot[], forecastHours: number, choice
   // days. Compare every family on the same holdout, even with irregular polling.
   const dailyTrainingCount = Math.min(points.length - holdoutCount,
     points.findIndex((point) => Date.parse(point.observedAt) > lastMs - 24 * HOUR_MS));
-  const dailyEligible = spanHours >= 72 && points.length >= 25 && dailyTrainingCount >= 16 &&
+  const fullDailyValidation = spanHours >= 72 && points.length >= 25 && dailyTrainingCount >= 16 &&
     (Date.parse(points[dailyTrainingCount - 1]!.observedAt) - firstMs) / HOUR_MS >= 48 &&
     points.every((point, i) => i === 0 || Date.parse(point.observedAt) - Date.parse(points[i - 1]!.observedAt) <= 6 * HOUR_MS);
-  if (choice === 'daily-saturation' && !dailyEligible) {
-    return { ...result, historyHours: spanHours, reason: 'Для суточной модели нужно минимум 3 суток истории и 25 наблюдений без разрывов больше 6 часов: двое суток для обучения и сутки для проверки.' };
-  }
-  if (dailyEligible) {
+  if (fullDailyValidation) {
     holdoutCount = points.length - dailyTrainingCount;
-    if (choice === 'auto' || choice === 'daily-saturation') {
-      for (const curvature of CURVATURES) candidates.push({ kind: 'daily-saturation', curvature });
-    }
   }
   const trainingCount = points.length - holdoutCount;
   const allowed = choice === 'auto'
@@ -281,8 +275,9 @@ export function forecastViews(history: Snapshot[], forecastHours: number, choice
   const rSquared = total > 0 ? 1 - residual / total : (residual < 1e-8 ? 1 : 0);
   const warnings: string[] = [];
   if (params.daily) warnings.push('Суточный период фиксирован: 24 часа. Амплитуда и время пика определены по истории; ритм аудитории может измениться.');
+  if (params.daily && !fullDailyValidation) warnings.push('Предварительная суточная модель: ещё нет проверки на полных отложенных сутках. Прогноз может быть неточным, особенно на короткой истории или при разрывах в данных.');
   if (!holdoutCount) warnings.push('Пока мало наблюдений: модель не проверена на отложенных точках.');
-  if (spanHours < 24) warnings.push('История короче суток: модель ещё не учитывает суточные изменения активности.');
+  if (spanHours < 24) warnings.push('История короче суток: суточный ритм ещё не наблюдался полностью.');
   const anchorMs = Math.max(lastMs, asOf?.getTime() ?? lastMs);
   if (!Number.isFinite(anchorMs)) return { ...result, reason: 'Некорректное время начала прогноза.' };
   const endMs = anchorMs + forecastHours * HOUR_MS;

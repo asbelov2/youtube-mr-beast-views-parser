@@ -36,8 +36,8 @@
             <span class="forecast-explanation">Вертикальная линия — последний реальный замер.</span>
           </div>
           <div class="chart-navigation"><div class="zoom-buttons" role="group" aria-label="Масштаб графика"><button id="zoom-in" type="button" class="secondary-button" aria-label="Приблизить график">+</button><button id="zoom-out" type="button" class="secondary-button" aria-label="Отдалить график">−</button><button id="zoom-reset" type="button" class="secondary-button" disabled>Сбросить масштаб</button></div><span id="chart-view-range" class="muted" aria-live="polite"></span></div>
-          <p id="chart-help" class="chart-help">Ctrl + колесо или щипок двумя пальцами — масштаб. Перетаскивание — сдвиг. Двойной щелчок — сброс. Красные линии — каждые 24 часа с публикации.</p>
-          <div class="chart-wrap"><canvas id="views-chart" role="img" aria-label="График фактических просмотров и аппроксимирующей функции" aria-describedby="chart-help chart-view-range"></canvas></div>
+          <p id="chart-help" class="chart-help">Ctrl + колесо или щипок двумя пальцами — масштаб. Перетаскивание — сдвиг. Двойной щелчок — сброс. Красные линии — каждые 24 часа с публикации; наведите на линию или коснитесь её, чтобы увидеть просмотры.</p>
+          <div class="chart-wrap"><canvas id="views-chart" role="img" aria-label="График фактических просмотров и аппроксимирующей функции" aria-describedby="chart-help chart-view-range"></canvas><div id="publication-day-tooltip" class="chart-day-tooltip" role="tooltip" hidden></div></div>
           <div id="model-unavailable" class="alert" hidden></div>
           <div id="forecast-warnings" class="forecast-warnings" aria-live="polite"></div>
           <details id="model-details" class="model-details"><summary id="model-summary">О модели</summary><p id="model-formula" class="formula"></p><p id="formula-origin" class="muted"></p><p id="model-quality" class="muted"></p><p class="muted">Аппроксимация описывает наблюдаемый тренд. Высокое соответствие прошлым точкам не гарантирует точность будущего прогноза.</p></details>

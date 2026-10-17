@@ -74,7 +74,7 @@ test('comparison API supports new presets, arbitrary hours and the same interval
   assert.equal((await fetch(`${base}/api/videos/fresh-video?compareHours=13.5`)).status, 200);
 });
 
-test('daily saturation is selectable through the API and explains insufficient history', async (t) => {
+test('daily saturation is selectable early through the API with provisional warnings', async (t) => {
   const { base } = await fixture(t, false, 72);
   const response = await fetch(`${base}/api/videos/fresh-video?model=daily-saturation&forecastHours=24`);
   assert.equal(response.status, 200);
@@ -83,9 +83,14 @@ test('daily saturation is selectable through the API and explains insufficient h
   assert.equal(data.forecast.model, 'daily-saturation');
   assert.equal(data.forecast.holdoutPoints, 24);
   const short = await fixture(t);
-  const unavailable = await (await fetch(`${short.base}/api/videos/fresh-video?model=daily-saturation`)).json() as DashboardVideo;
+  const early = await (await fetch(`${short.base}/api/videos/fresh-video?model=daily-saturation`)).json() as DashboardVideo;
+  assert.equal(early.forecast.available, true);
+  assert.equal(early.forecast.model, 'daily-saturation');
+  assert.ok(early.forecast.warnings.some((warning) => warning.includes('Предварительная')));
+  const tooFew = await fixture(t, false, 6);
+  const unavailable = await (await fetch(`${tooFew.base}/api/videos/fresh-video?model=daily-saturation`)).json() as DashboardVideo;
   assert.equal(unavailable.forecast.available, false);
-  assert.match(unavailable.forecast.reason!, /3 суток/);
+  assert.match(unavailable.forecast.reason!, /8 наблюдений/);
 });
 
 test('custom time, missing history and unknown videos have distinct outcomes', async (t) => {

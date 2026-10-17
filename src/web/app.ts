@@ -3,7 +3,7 @@ import type { ModelChoice } from '../analytics.js';
 import type { DashboardIndex, DashboardVideo } from '../dashboard-types.js';
 import { channelName } from '../channels.js';
 import zoomPlugin from 'chartjs-plugin-zoom';
-import { publicationDays } from './chart-days.js';
+import { dailyLines } from './chart-day-tooltip.js';
 
 // The package's CommonJS declarations misidentify its ESM default under NodeNext.
 Chart.register(LineController, LineElement, PointElement, LinearScale, Tooltip, zoomPlugin as unknown as Plugin);
@@ -39,33 +39,6 @@ function updateChartView(current: Pick<Chart, 'scales' | 'isZoomedOrPanned'>) {
   if (!scale) return;
   text('chart-view-range', `${dateTime(new Date(scale.min).toISOString())} — ${dateTime(new Date(scale.max).toISOString())}`);
   $<HTMLButtonElement>('zoom-reset').disabled = !current.isZoomedOrPanned();
-}
-
-function dailyLines(publishedAt: string): Plugin<'line'> {
-  return {
-    id: 'publication-days',
-    beforeDatasetsDraw(current) {
-      const xScale = current.scales.x;
-      if (!xScale) return;
-      const { ctx, chartArea } = current;
-      ctx.save();
-      ctx.beginPath(); ctx.rect(chartArea.left, chartArea.top, chartArea.width, chartArea.height); ctx.clip();
-      ctx.strokeStyle = '#ef6464'; ctx.fillStyle = '#ef8585'; ctx.lineWidth = 1; ctx.font = '10px sans-serif';
-      ctx.setLineDash([5, 5]);
-      let lastLabelX = -Infinity;
-      for (const mark of publicationDays(publishedAt, xScale.min, xScale.max)) {
-        const x = xScale.getPixelForValue(mark.time);
-        ctx.beginPath(); ctx.moveTo(x, chartArea.top); ctx.lineTo(x, chartArea.bottom); ctx.stroke();
-        if (x - lastLabelX >= 48) {
-          const label = `${mark.day} сут.`;
-          const fitsRight = x + ctx.measureText(label).width + 4 < chartArea.right;
-          ctx.textAlign = fitsRight ? 'left' : 'right';
-          ctx.fillText(label, x + (fitsRight ? 4 : -4), chartArea.top + 12); lastLabelX = x;
-        }
-      }
-      ctx.restore();
-    },
-  };
 }
 
 const cutoffPlugin: Plugin<'line'> = {
@@ -153,7 +126,7 @@ function renderChart(data: DashboardVideo) {
       { label: 'Фактические данные', data: measured, borderColor: '#49d9eb', backgroundColor: '#49d9eb', borderWidth: 2.5, pointRadius: measured.length > 60 ? 0 : 3, pointHoverRadius: 5, tension: 0 },
       { label: 'Аппроксимация и прогноз', data: curve, borderColor: '#f5bf63', borderWidth: 2, borderDash: [6, 5], pointRadius: 0, pointHoverRadius: 3, tension: 0 },
     ] },
-    plugins: [cutoffPlugin, dailyLines(data.video.publishedAt)],
+    plugins: [cutoffPlugin, dailyLines(data, (index?.pollIntervalMinutes ?? 5) * 120_000)],
     options: {
       responsive: true, maintainAspectRatio: false, animation: false, parsing: false,
       interaction: { mode: 'nearest', intersect: false },

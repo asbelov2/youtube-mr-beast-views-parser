@@ -9,4 +9,5 @@
 .zoom-buttons{display:flex;gap:7px;flex-wrap:wrap}.zoom-buttons .secondary-button{padding:8px 11px}.zoom-buttons button:disabled{cursor:default}
 #chart-view-range{font-size:10px;font-variant-numeric:tabular-nums}.chart-help{color:#7e94af;font-size:10px;line-height:1.7;margin-bottom:4px}
 #compare-hours{min-width:0;width:160px}
+.chart-day-tooltip{position:absolute;z-index:2;pointer-events:none;width:max-content;max-width:calc(100% - 16px);padding:12px;background:#0a1220;border:1px solid #364763;border-radius:7px;color:#dce7f3;font-size:12px;line-height:1.6;overflow-wrap:anywhere;box-shadow:0 4px 16px #0004;font-variant-numeric:tabular-nums}.chart-day-tooltip strong{display:block;color:#ef8585;margin-bottom:3px}.chart-day-tooltip p{margin:3px 0}.day-tooltip-time{color:#b7c8df}
 @media(max-width:500px){#compare-hours{width:100%}.chart-navigation{gap:10px}.zoom-buttons{width:100%}}

@@ -212,13 +212,24 @@ test('daily saturation remains monotone and bounded even with excessive oscillat
   assert.ok(last - previous < 5_000);
 });
 
-test('daily model needs several covered cycles and auto keeps simpler models when seasonality does not help', () => {
-  for (const history of [dailySeries(48), dailySeries(72).filter((_, i) => i < 30 || i > 60), series(4, (t) => 1000 + t, 24)]) {
+test('daily model is available early and explicitly labels provisional validation', () => {
+  for (const history of [dailySeries(48), dailySeries(72).filter((_, i) => i < 30 || i > 60), dailySeries(7 / 12, 1 / 12)]) {
     const result = forecastViews(history, 24, 'daily-saturation');
-    assert.equal(result.available, false);
+    assert.equal(result.available, true, result.reason ?? '');
+    assert.equal(result.model, 'daily-saturation');
+    assert.ok(result.warnings.some((warning) => warning.includes('Предварительная суточная модель')));
+    assert.ok(result.holdoutMae !== null && Number.isFinite(result.holdoutMae));
+    assert.ok(result.curve.every((p, i) => Number.isFinite(p.views) && (i === 0 || p.views >= result.curve[i - 1]!.views - 1e-6)));
   }
+  assert.equal(forecastViews(series(7, (t) => 1000 + t, 1 / 12), 24, 'daily-saturation').available, false);
+  assert.equal(forecastViews(dailySeries(48), 24).model, 'daily-saturation');
+  assert.equal(forecastViews(dailySeries(72), 24, 'daily-saturation').warnings.some((w) => w.includes('Предварительная')), false);
+});
+
+test('auto selection keeps simpler models when seasonality does not help, including early history', () => {
   for (const history of [series(193, (t) => 1_000_000 + t * 1000, 0.5),
-    series(193, (t) => 1_000_000 + 500_000 * (1 - Math.exp(-t / 48)), 0.5)]) {
+    series(193, (t) => 1_000_000 + 500_000 * (1 - Math.exp(-t / 48)), 0.5),
+    series(8, (t) => 1_000_000 + t * 1000, 1 / 12)]) {
     assert.notEqual(forecastViews(history, 24).model, 'daily-saturation');
   }
 });
