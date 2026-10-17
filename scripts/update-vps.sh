@@ -13,6 +13,10 @@ update_port=${MRBEAST_WEB_PORT:-80}
 [[ -f $update_source/package-lock.json && -f $update_source/src/index.ts ]] || update_fail 'MRBEAST_SOURCE_DIR is not a project checkout.'
 [[ $(realpath "$update_source") != "$update_root/app" ]] || update_fail 'Run from a separate checkout, not the active application directory.'
 [[ ! -e $update_root/app/data && ! -e $update_root/app/.env ]] || update_fail 'Runtime files exist inside the application directory; inspect them before switching code.'
+# This updater targets the layout created by deploy-vps.sh. Do not guess where
+# a customized service stores its data, or evaluate/source its secret env file.
+awk -F= '$1 == "DATABASE_PATH" { count++; if ($0 != "DATABASE_PATH=/var/lib/mrbeast/mrbeast.sqlite") invalid=1 } END { exit(count != 1 || invalid) }' /etc/mrbeast/collector.env || update_fail 'Nonstandard DATABASE_PATH; inspect the service and back up its actual database before updating.'
+[[ -f /var/lib/mrbeast/mrbeast.sqlite ]] || update_fail 'Existing SQLite database not found; refusing to start with empty history.'
 umask 022
 update_tmp=$(mktemp -d "$update_root/update.XXXXXXXX")
 chmod 0755 "$update_tmp"
@@ -27,14 +31,20 @@ cleanup() {
   if $update_stopped && ! $update_done; then
     systemctl stop mrbeast.service
     if $update_moved; then
-      if [[ -e $update_root/app ]]; then mv -- "$update_root/app" "$update_tmp/failed-app"; fi
+      if [[ -e $update_root/app ]] && ! mv -- "$update_root/app" "$update_tmp/failed-app"; then
+        printf 'Could not move failed code. Previous code and database backup remain in %s; manual recovery required.\n' "$update_backup" >&2
+        exit 1
+      fi
       if ! mv -- "$update_backup/app" "$update_root/app"; then
         printf 'Restore failed. Previous code is in %s/app; database and key are unchanged.\n' "$update_backup" >&2
         exit 1
       fi
     fi
-    systemctl start mrbeast.service
-    printf 'Update failed; previous application code restored.\n' >&2
+    if ! systemctl start mrbeast.service; then
+      printf 'Previous code is restored, but service restart failed. Inspect journalctl -u mrbeast.\n' >&2
+    else
+      printf 'Update failed; previous application code restored.\n' >&2
+    fi
   fi
   rm -rf -- "$update_tmp"
   exit "$update_exit"
@@ -52,16 +62,20 @@ chown -R mrbeast:mrbeast "$update_tmp/app"
 )
 chown -R root:root "$update_tmp/app"
 update_backup=$(mktemp -d "$update_root/previous.XXXXXXXX")
-chmod 0755 "$update_backup"
-systemctl stop mrbeast.service
+chmod 0700 "$update_backup"
 update_stopped=true
+systemctl stop mrbeast.service
+# Back up after a graceful stop and before switching any code. On failure the
+# trap restarts the previous version. Rollbacks never replace the live database.
+"$update_root/node/bin/node" "$update_tmp/app/scripts/backup-database.mjs" /var/lib/mrbeast/mrbeast.sqlite "$update_backup/database.sqlite"
+printf 'Verified SQLite backup: %s/database.sqlite\n' "$update_backup"
 mv -- "$update_root/app" "$update_backup/app"
 update_moved=true
 mv -- "$update_tmp/app" "$update_root/app"
 systemctl start mrbeast.service
 update_ready=false
 for ((update_attempt=0; update_attempt<30; update_attempt++)); do
-  if systemctl is-active --quiet mrbeast.service && curl --fail --silent --noproxy '*' "http://127.0.0.1:$update_port/api/videos" -o "$update_tmp/health.json"; then
+  if systemctl is-active --quiet mrbeast.service && curl --fail --silent --max-time 2 --noproxy '*' "http://127.0.0.1:$update_port/api/videos" -o "$update_tmp/health.json"; then
     update_ready=true; break
   fi
   sleep 1
@@ -72,11 +86,13 @@ import { readFileSync } from 'node:fs';
 const data = JSON.parse(readFileSync(process.argv[2], 'utf8'));
 if (!Array.isArray(data.videos)) throw new Error('Invalid dashboard response');
 if (data.videos.length) {
-  const response = await fetch(`http://127.0.0.1:${process.argv[3]}/api/videos/${encodeURIComponent(data.videos[0].id)}?compareHours=13&forecastHours=1`, { signal: AbortSignal.timeout(10000) });
-  if (!response.ok || !(await response.json()).dayComparison) throw new Error('Updated comparison endpoint is unavailable');
+  const response = await fetch(`http://127.0.0.1:${process.argv[3]}/api/videos/${encodeURIComponent(data.videos[0].id)}?compareHours=13&forecastHours=1&model=daily-saturation`, { signal: AbortSignal.timeout(10000) });
+  if (!response.ok || !(await response.json()).dayComparison) throw new Error('Updated forecast endpoint is unavailable');
 }
+const html = await fetch(`http://127.0.0.1:${process.argv[3]}/`, { signal: AbortSignal.timeout(10000) });
+if (!html.ok || !(await html.text()).includes('value="daily-saturation"')) throw new Error('Updated model selector is unavailable');
 console.log('Updated dashboard verified; saved videos: ' + data.videos.length);
 JS
 systemctl is-active --quiet mrbeast.service
 update_done=true
-printf 'Update complete. Previous code: %s/app. SQLite and API configuration are preserved.\n' "$update_backup"
+printf 'Update complete. Previous code: %s/app. Database backup: %s/database.sqlite. Live SQLite and API configuration are preserved.\n' "$update_backup" "$update_backup"

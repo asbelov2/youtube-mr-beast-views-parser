@@ -1,7 +1,8 @@
 import type { Snapshot } from './types.js';
+import { fitDailySaturation, predictDailySaturation, type DailyParameters } from './daily-saturation.js';
 
 const HOUR_MS = 3_600_000;
-export type ModelKind = 'linear' | 'logarithmic' | 'saturation';
+export type ModelKind = 'linear' | 'logarithmic' | 'saturation' | 'daily-saturation';
 export type ModelChoice = ModelKind | 'auto';
 
 export interface Comparison {
@@ -134,10 +135,11 @@ export interface Forecast {
 }
 
 interface Candidate { kind: ModelKind; curvature: number }
-interface Parameters { a: number; b: number; candidate: Candidate }
+interface Parameters { a: number; b: number; candidate: Candidate; daily?: DailyParameters }
 const CURVATURES = [0.05, 0.1, 0.2, 0.35, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8, 12, 16, 24, 32];
 const LABELS: Record<ModelKind, string> = {
   linear: 'Линейная', logarithmic: 'Логарифмическая', saturation: 'С насыщением',
+  'daily-saturation': 'Насыщение + суточный ритм',
 };
 
 function basis(candidate: Candidate, x: number): number {
@@ -146,7 +148,11 @@ function basis(candidate: Candidate, x: number): number {
   return -Math.expm1(-candidate.curvature * x);
 }
 
-function fit(candidate: Candidate, xs: number[], ys: number[]): Parameters {
+function fit(candidate: Candidate, xs: number[], ys: number[], spanHours: number): Parameters {
+  if (candidate.kind === 'daily-saturation') {
+    const daily = fitDailySaturation(candidate.curvature, spanHours, xs, ys);
+    return { a: daily.intercept, b: daily.level, candidate, daily };
+  }
   const values = xs.map((x) => basis(candidate, x));
   const meanX = values.reduce((sum, x) => sum + x, 0) / values.length;
   const meanY = ys.reduce((sum, y) => sum + y, 0) / ys.length;
@@ -162,11 +168,39 @@ function fit(candidate: Candidate, xs: number[], ys: number[]): Parameters {
 }
 
 function predict(params: Parameters, x: number): number {
+  if (params.daily) return predictDailySaturation(params.daily, x);
   return params.a + params.b * basis(params.candidate, x);
 }
 
 function coefficient(value: number): string {
   return Number(value.toPrecision(7)).toString();
+}
+
+function refineCurvature(candidates: Candidate[], xs: number[], ys: number[], spanHours: number): Candidate {
+  const error = (candidate: Candidate) => {
+    const params = fit(candidate, xs, ys, spanHours);
+    return ys.reduce((sum, y, i) => sum + (predict(params, xs[i]!) - y) ** 2, 0);
+  };
+  const scores = candidates.map(error);
+  const best = scores.indexOf(Math.min(...scores));
+  let left = candidates[Math.max(0, best - 1)]!.curvature;
+  let right = candidates[Math.min(candidates.length - 1, best + 1)]!.curvature;
+  const ratio = (Math.sqrt(5) - 1) / 2;
+  const kind = candidates[best]!.kind;
+  let a = right - ratio * (right - left);
+  let b = left + ratio * (right - left);
+  let fa = error({ kind, curvature: a });
+  let fb = error({ kind, curvature: b });
+  for (let i = 0; i < 28; i++) {
+    if (fa < fb) {
+      right = b; b = a; fb = fa;
+      a = right - ratio * (right - left); fa = error({ kind, curvature: a });
+    } else {
+      left = a; a = b; fa = fb;
+      b = left + ratio * (right - left); fb = error({ kind, curvature: b });
+    }
+  }
+  return { kind, curvature: fa < fb ? a : b };
 }
 
 export function forecastViews(history: Snapshot[], forecastHours: number, choice: ModelChoice = 'auto', asOf?: Date): Forecast {
@@ -199,27 +233,54 @@ export function forecastViews(history: Snapshot[], forecastHours: number, choice
   for (const kind of ['logarithmic', 'saturation'] as const) {
     for (const curvature of CURVATURES) candidates.push({ kind, curvature });
   }
-  const holdoutCount = points.length >= 8 ? Math.max(2, Math.ceil(points.length * 0.2)) : 0;
+  let holdoutCount = points.length >= 8 ? Math.max(2, Math.ceil(points.length * 0.2)) : 0;
+  // A daily pattern must predict a whole unseen day after at least two training
+  // days. Compare every family on the same holdout, even with irregular polling.
+  const dailyTrainingCount = Math.min(points.length - holdoutCount,
+    points.findIndex((point) => Date.parse(point.observedAt) > lastMs - 24 * HOUR_MS));
+  const dailyEligible = spanHours >= 72 && points.length >= 25 && dailyTrainingCount >= 16 &&
+    (Date.parse(points[dailyTrainingCount - 1]!.observedAt) - firstMs) / HOUR_MS >= 48 &&
+    points.every((point, i) => i === 0 || Date.parse(point.observedAt) - Date.parse(points[i - 1]!.observedAt) <= 6 * HOUR_MS);
+  if (choice === 'daily-saturation' && !dailyEligible) {
+    return { ...result, historyHours: spanHours, reason: 'Для суточной модели нужно минимум 3 суток истории и 25 наблюдений без разрывов больше 6 часов: двое суток для обучения и сутки для проверки.' };
+  }
+  if (dailyEligible) {
+    holdoutCount = points.length - dailyTrainingCount;
+    if (choice === 'auto' || choice === 'daily-saturation') {
+      for (const curvature of CURVATURES) candidates.push({ kind: 'daily-saturation', curvature });
+    }
+  }
   const trainingCount = points.length - holdoutCount;
   const allowed = choice === 'auto'
     ? (holdoutCount ? candidates : candidates.slice(0, 1))
     : candidates.filter((candidate) => candidate.kind === choice);
+  const trainXs = xs.slice(0, trainingCount);
+  const trainYs = ys.slice(0, trainingCount);
+  // Refine on training data only. A grid alone ties accuracy to the exact
+  // observed span (which is almost never a round number of hours).
+  for (const kind of ['logarithmic', 'saturation', 'daily-saturation'] as const) {
+    const family = allowed.filter((candidate) => candidate.kind === kind);
+    if (family.length) allowed.push(refineCurvature(family, trainXs, trainYs, spanHours));
+  }
   const scored = allowed.map((candidate) => {
-    const params = fit(candidate, xs.slice(0, trainingCount), ys.slice(0, trainingCount));
+    const params = fit(candidate, trainXs, trainYs, spanHours);
     const score = holdoutCount
       ? ys.slice(trainingCount).reduce((sum, y, index) => sum + Math.abs(predict(params, xs[trainingCount + index]!) - y), 0) / holdoutCount
       : 0;
     return { candidate, score };
   }).sort((a, b) => a.score - b.score);
   let selected = scored[0]!;
+  const simpler = scored.find((entry) => entry.candidate.kind !== 'daily-saturation');
+  if (simpler && selected.candidate.kind === 'daily-saturation' && simpler.score <= selected.score * 1.05 + 1) selected = simpler;
   const linear = scored.find((entry) => entry.candidate.kind === 'linear');
   if (linear && linear.score <= selected.score * 1.05 + 1) selected = linear;
-  const params = fit(selected.candidate, xs, ys);
+  const params = fit(selected.candidate, xs, ys, spanHours);
   const meanY = ys.reduce((sum, y) => sum + y, 0) / ys.length;
   const residual = ys.reduce((sum, y, index) => sum + (predict(params, xs[index]!) - y) ** 2, 0);
   const total = ys.reduce((sum, y) => sum + (y - meanY) ** 2, 0);
   const rSquared = total > 0 ? 1 - residual / total : (residual < 1e-8 ? 1 : 0);
   const warnings: string[] = [];
+  if (params.daily) warnings.push('Суточный период фиксирован: 24 часа. Амплитуда и время пика определены по истории; ритм аудитории может измениться.');
   if (!holdoutCount) warnings.push('Пока мало наблюдений: модель не проверена на отложенных точках.');
   if (spanHours < 24) warnings.push('История короче суток: модель ещё не учитывает суточные изменения активности.');
   const anchorMs = Math.max(lastMs, asOf?.getTime() ?? lastMs);
@@ -243,7 +304,11 @@ export function forecastViews(history: Snapshot[], forecastHours: number, choice
   const a = coefficient(baseline + params.a);
   const b = coefficient(params.b);
   const k = coefficient(params.candidate.curvature / spanHours);
-  const formula = params.candidate.kind === 'linear'
+  const amplitude = params.daily && params.b > 0 ? Math.hypot(params.daily.sine, params.daily.cosine) / params.b : 0;
+  const phase = params.daily ? Math.atan2(params.daily.cosine, params.daily.sine) : 0;
+  const formula = params.daily
+    ? `V(t) = ${a} + ${b} · ${k} · ∫₀ᵗ exp(−${k} · u) · [1 + ${coefficient(amplitude)} · sin(2π · u / 24 + ${coefficient(phase)})] du`
+    : params.candidate.kind === 'linear'
     ? `V(t) = ${a} + ${coefficient(params.b / spanHours)} · t`
     : params.candidate.kind === 'logarithmic'
       ? `V(t) = ${a} + ${b} · ln(1 + ${k} · t)`

@@ -160,6 +160,78 @@ test('logarithmic model recovers a known logarithmic curve', () => {
   assert.ok(result.holdoutMae! < 1);
 });
 
+// Independent numerical integration of a positive daily rate, rather than the
+// analytic expression used by the fitter. Also exercises an arbitrary phase.
+function dailySeries(hours = 96, step = 0.5, amplitude = 0.7, phase = 1.1): Snapshot[] {
+  let views = 1_000_000;
+  const history: Snapshot[] = [];
+  const rate = (t: number) => 80_000 * Math.exp(-t / 48) * (1 + amplitude * Math.sin(2 * Math.PI * t / 24 + phase));
+  for (let i = 0; i <= Math.round(hours / step); i++) {
+    const t = i * step;
+    if (i) {
+      // Composite Simpson quadrature over the interval.
+      const divisions = 20;
+      const delta = step / divisions;
+      let sum = rate(t - step) + rate(t);
+      for (let j = 1; j < divisions; j++) sum += (j % 2 ? 4 : 2) * rate(t - step + j * delta);
+      views += sum * delta / 3;
+    }
+    history.push({ observedAt: new Date(NOW.getTime() + t * 3_600_000).toISOString(), viewCount: String(Math.round(views)) });
+  }
+  return history;
+}
+
+test('daily saturation learns phase and amplitude and improves the next-day forecast', () => {
+  const full = dailySeries();
+  const training = full.filter((p) => Date.parse(p.observedAt) <= NOW.getTime() + 72 * 3_600_000);
+  const result = forecastViews(training, 24, 'daily-saturation');
+  const saturation = forecastViews(training, 24, 'saturation');
+  const truth = Number(full.at(-1)!.viewCount);
+  assert.equal(result.available, true, result.reason ?? '');
+  assert.equal(result.model, 'daily-saturation');
+  assert.equal(result.holdoutPoints, 48);
+  assert.ok(result.holdoutMae! < 1, `MAE ${result.holdoutMae}`);
+  assert.ok(result.holdoutMae! < saturation.holdoutMae! * 0.1);
+  assert.ok(Math.abs(result.predictedViews! - truth) < 2);
+  assert.ok(result.rSquared! > 0.99999);
+  assert.match(result.formula!, /sin\(2π · u \/ 24/);
+  assert.equal(forecastViews(training, 24).model, 'daily-saturation');
+  assert.ok(result.warnings.some((warning) => warning.includes('24 часа')));
+});
+
+test('daily saturation remains monotone and bounded even with excessive oscillations or declining measurements', () => {
+  for (const history of [dailySeries(96, 0.5, 2.5), series(193, (t) => 5_000_000 - t * 1_000, 0.5), series(193, () => 5_000_000, 0.5)]) {
+    const result = forecastViews(history, 168, 'daily-saturation');
+    assert.equal(result.available, true);
+    assert.ok(result.curve.every((p, i) => Number.isFinite(p.views) && p.views >= 0 && (i === 0 || p.views >= result.curve[i - 1]!.views - 1e-6)));
+    assert.ok(result.predictedViews! < 20_000_000);
+  }
+  const plateau = forecastViews(dailySeries(96, 0.5), 168, 'daily-saturation');
+  const last = plateau.curve.at(-1)!.views;
+  const previous = plateau.curve.at(-2)!.views;
+  assert.ok(last - previous < 5_000);
+});
+
+test('daily model needs several covered cycles and auto keeps simpler models when seasonality does not help', () => {
+  for (const history of [dailySeries(48), dailySeries(72).filter((_, i) => i < 30 || i > 60), series(4, (t) => 1000 + t, 24)]) {
+    const result = forecastViews(history, 24, 'daily-saturation');
+    assert.equal(result.available, false);
+  }
+  for (const history of [series(193, (t) => 1_000_000 + t * 1000, 0.5),
+    series(193, (t) => 1_000_000 + 500_000 * (1 - Math.exp(-t / 48)), 0.5)]) {
+    assert.notEqual(forecastViews(history, 24).model, 'daily-saturation');
+  }
+});
+
+test('daily phase follows absolute time across midnight and irregular observations', () => {
+  const full = dailySeries(96, 0.5, 0.65, -2.4);
+  const history = full.slice(1).filter((_, i) => i % 5 !== 2);
+  const result = forecastViews(history, 24, 'daily-saturation');
+  const expected = dailySeries(120, 0.5, 0.65, -2.4).at(-1)!;
+  assert.equal(result.available, true);
+  assert.ok(Math.abs(result.predictedViews! - Number(expected.viewCount)) < 1000);
+});
+
 test('early history uses a simple model and explains unvalidated long extrapolation', () => {
   const result = forecastViews(series(3, (hours) => 1_000 + 100 * hours, 0.1), 24);
   assert.equal(result.available, true);

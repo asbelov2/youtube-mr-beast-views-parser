@@ -74,6 +74,20 @@ test('comparison API supports new presets, arbitrary hours and the same interval
   assert.equal((await fetch(`${base}/api/videos/fresh-video?compareHours=13.5`)).status, 200);
 });
 
+test('daily saturation is selectable through the API and explains insufficient history', async (t) => {
+  const { base } = await fixture(t, false, 72);
+  const response = await fetch(`${base}/api/videos/fresh-video?model=daily-saturation&forecastHours=24`);
+  assert.equal(response.status, 200);
+  const data = await response.json() as DashboardVideo;
+  assert.equal(data.forecast.available, true);
+  assert.equal(data.forecast.model, 'daily-saturation');
+  assert.equal(data.forecast.holdoutPoints, 24);
+  const short = await fixture(t);
+  const unavailable = await (await fetch(`${short.base}/api/videos/fresh-video?model=daily-saturation`)).json() as DashboardVideo;
+  assert.equal(unavailable.forecast.available, false);
+  assert.match(unavailable.forecast.reason!, /3 суток/);
+});
+
 test('custom time, missing history and unknown videos have distinct outcomes', async (t) => {
   const { base } = await fixture(t);
   const params = new URLSearchParams({ compareAt: new Date(NOW.getTime() + 4.5 * 3_600_000).toISOString() });

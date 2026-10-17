@@ -78,7 +78,7 @@ export function createDashboardServer(options: ServerOptions): Server {
           : new Date(Date.parse(video.lastObservedAt) - hours(url.searchParams.get('compareHours'), 24) * 3_600_000);
         if (!Number.isFinite(requestedAt.getTime())) throw new RequestError(400, 'Некорректное время сравнения.');
         const model = url.searchParams.get('model') ?? 'auto';
-        if (!['auto', 'linear', 'logarithmic', 'saturation'].includes(model)) {
+        if (!['auto', 'linear', 'logarithmic', 'saturation', 'daily-saturation'].includes(model)) {
           throw new RequestError(400, 'Неизвестная модель аппроксимации.');
         }
         const comparison = compareGrowth(history, requestedAt);
