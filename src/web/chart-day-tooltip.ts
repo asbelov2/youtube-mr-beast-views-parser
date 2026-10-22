@@ -1,6 +1,7 @@
 import type { Plugin } from 'chart.js';
 import type { DashboardVideo } from '../dashboard-types.js';
 import { createDayViewLookup, publicationDays } from './chart-days.js';
+import { holidayTooltipLines, holidaysAt, showHolidayContext } from './holiday-info.js';
 
 export function dailyLines(data: DashboardVideo, maxSampleGapMs: number): Plugin<'line'> {
   const tooltip = document.getElementById('publication-day-tooltip')!;
@@ -18,7 +19,9 @@ export function dailyLines(data: DashboardVideo, maxSampleGapMs: number): Plugin
       const { event } = args;
       const scale = current.scales.x;
       const previousTime = activeTime;
-      const mark = args.inChartArea && event.type !== 'mouseout' && event.x !== null && scale && !current.isZoomingOrPanning()
+      const overlaidPoint = current.getActiveElements().some(({ datasetIndex, element }) => datasetIndex >= 2 &&
+        event.x !== null && event.y !== null && Math.hypot(element.x - event.x, element.y - event.y) <= 8);
+      const mark = args.inChartArea && !overlaidPoint && event.type !== 'mouseout' && event.x !== null && scale && !current.isZoomingOrPanning()
         ? publicationDays(data.video.publishedAt, scale.min, scale.max)
           .map((mark) => ({ ...mark, distance: Math.abs(scale.getPixelForValue(mark.time) - event.x!) }))
           .filter((mark) => mark.distance <= 8).sort((a, b) => a.distance - b.distance)[0]
@@ -37,6 +40,11 @@ export function dailyLines(data: DashboardVideo, maxSampleGapMs: number): Plugin
           const model = values.model === null ? 'Модель: нет данных'
             : `${values.future ? 'Прогноз' : 'Аппроксимация'} ≈ ${Math.round(values.model).toLocaleString('ru-RU')} просмотров`;
           tooltip.replaceChildren(title, row(time, 'day-tooltip-time'), row(actual, values.actual ? 'cyan' : 'day-tooltip-time'), row(model, 'amber'));
+          const holidayLines = holidayTooltipLines(holidaysAt(data.holidays, mark.time), window.innerWidth < 600 ? 28 : 40);
+          for (const line of holidayLines.slice(0, 6)) {
+            tooltip.append(row(line, 'day-tooltip-holiday'));
+          }
+          if (holidayLines.length > 6) tooltip.append(row('Полный список — рядом с графиком.', 'day-tooltip-holiday'));
           tooltip.dataset.time = String(mark.time);
           activeTime = mark.time;
         }
@@ -50,6 +58,7 @@ export function dailyLines(data: DashboardVideo, maxSampleGapMs: number): Plugin
         // exact timestamp and may lie between the actual samples.
         current.setActiveElements([]);
         current.tooltip?.setActiveElements([], { x: event.x, y: event.y });
+        showHolidayContext(holidaysAt(data.holidays, mark.time), mark.time, data.video.title);
         args.changed = true;
       } else hide();
       if (previousTime !== activeTime) args.changed = true;

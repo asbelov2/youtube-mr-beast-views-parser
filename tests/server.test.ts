@@ -105,6 +105,29 @@ test('custom time, missing history and unknown videos have distinct outcomes', a
   assert.equal((await fetch(`${base}/api/videos/unknown`)).status, 404);
 });
 
+test('fit API selects publication-relative bounds and keeps complete history and current comparisons', async (t) => {
+  const { base } = await fixture(t, false, 96);
+  // The fixture was first observed a full day after publication.
+  const response = await fetch(`${base}/api/videos/fresh-video?fitStartDay=2&fitEndDay=3&model=linear&compareHours=1&forecastHours=1`);
+  assert.equal(response.status, 200);
+  const data = await response.json() as DashboardVideo;
+  assert.equal(data.history.length, 97);
+  assert.equal(data.fitRange.observations, 25);
+  assert.equal(data.fitRange.firstObservedAt, new Date(NOW.getTime() + 24 * 3_600_000).toISOString());
+  assert.equal(data.fitRange.lastObservedAt, new Date(NOW.getTime() + 48 * 3_600_000).toISOString());
+  assert.equal(data.forecast.originAt, data.fitRange.firstObservedAt);
+  assert.equal(data.forecast.predictedViews, 1_009_800);
+  assert.equal(data.comparison.viewDelta, '100');
+  assert.ok(Array.isArray(data.holidays));
+  assert.ok(data.holidays.some((holiday) => holiday.country === 'BR'));
+  const empty = await (await fetch(`${base}/api/videos/fresh-video?fitStartDay=10`)).json() as DashboardVideo;
+  assert.equal(empty.history.length, 97);
+  assert.equal(empty.forecast.available, false);
+  for (const query of ['fitStartDay=-1', 'fitEndDay=0', 'fitStartDay=3&fitEndDay=2', 'fitEndDay=NaN', 'fitEndDay=']) {
+    assert.equal((await fetch(`${base}/api/videos/fresh-video?${query}`)).status, 400);
+  }
+});
+
 test('invalid periods and model choices are rejected instead of producing invalid predictions', async (t) => {
   const { base } = await fixture(t);
   for (const query of ['forecastHours=0', 'forecastHours=169', 'forecastHours=NaN', 'compareHours=-1', 'model=quadratic', 'compareAt=invalid', 'compareAt=2026-10-13T12:00:00Z&compareHours=1']) {

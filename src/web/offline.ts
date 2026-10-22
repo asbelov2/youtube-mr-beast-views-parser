@@ -1,4 +1,5 @@
-import { compareDayAgo, compareGrowth, forecastViews, type ModelChoice } from '../analytics.js';
+import { compareDayAgo, compareGrowth, type ModelChoice } from '../analytics.js';
+import { fitVideoForecast, readFitWindow } from '../fit-window.js';
 import type { OfflineData } from '../dashboard-types.js';
 
 const data = JSON.parse(document.getElementById('offline-data')!.textContent!) as OfflineData;
@@ -32,8 +33,9 @@ globalThis.fetch = async (input, init) => {
       body = {
         video, history, comparison,
         dayComparison: compareDayAgo(history, comparison, data.index.pollIntervalMinutes * 120_000),
-        forecast: forecastViews(history, Number(url.searchParams.get('forecastHours') ?? 24),
-          (url.searchParams.get('model') ?? 'auto') as ModelChoice, new Date(data.index.generatedAt)),
+        ...fitVideoForecast(history, video.publishedAt, Number(url.searchParams.get('forecastHours') ?? 24),
+          (url.searchParams.get('model') ?? 'auto') as ModelChoice, new Date(data.index.generatedAt), readFitWindow(url.searchParams)),
+        holidays: data.calendars[id] ?? [],
       };
     }
   } else { status = 404; body = { error: 'Страница не найдена.' }; }

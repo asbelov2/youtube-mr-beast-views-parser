@@ -1,9 +1,12 @@
-import { Chart, LineController, LineElement, PointElement, LinearScale, Tooltip, type Plugin } from 'chart.js';
+import { Chart, LineController, LineElement, PointElement, LinearScale, Tooltip, type Plugin, type ChartDataset } from 'chart.js';
 import type { ModelChoice } from '../analytics.js';
 import type { DashboardIndex, DashboardVideo } from '../dashboard-types.js';
 import { channelName } from '../channels.js';
 import zoomPlugin from 'chartjs-plugin-zoom';
 import { dailyLines } from './chart-day-tooltip.js';
+import { ageLabel, alignHistory, originalTime } from './chart-time.js';
+import { startWorldClocks } from './world-clocks.js';
+import { clearHolidayContext, holidayTooltipLines, holidaysAt, showHolidayContext } from './holiday-info.js';
 
 // The package's CommonJS declarations misidentify its ESM default under NodeNext.
 Chart.register(LineController, LineElement, PointElement, LinearScale, Tooltip, zoomPlugin as unknown as Plugin);
@@ -33,11 +36,25 @@ let detailAbort: AbortController | undefined;
 let refreshing = false;
 let chart: Chart<'line', Array<{ x: number; y: number }>> | undefined;
 let chartVideoId: string | undefined;
+let chartPublishedMs = 0;
+let chartHasOverlays = false;
+let fitStartDay = 0;
+let fitEndDay: number | null = null;
+const overlayIds = new Set<string>();
+const overlayColors = new Map<string, string>();
+let overlayDetails: DashboardVideo[] = [];
+const OVERLAY_COLORS = ['#bd9bfa', '#78d6a3', '#f38db3', '#74a9fa', '#ef956b', '#c8d770'];
+const overlayColor = (id: string) => overlayColors.get(id) ?? OVERLAY_COLORS[0]!;
+const shortTitle = (title: string) => {
+  const length = window.innerWidth < 600 ? 24 : 45;
+  return title.length > length ? `${title.slice(0, length - 3)}…` : title;
+};
 
 function updateChartView(current: Pick<Chart, 'scales' | 'isZoomedOrPanned'>) {
   const scale = current.scales.x;
   if (!scale) return;
-  text('chart-view-range', `${dateTime(new Date(scale.min).toISOString())} — ${dateTime(new Date(scale.max).toISOString())}`);
+  text('chart-view-range', chartHasOverlays ? `${ageLabel(scale.min - chartPublishedMs)} — ${ageLabel(scale.max - chartPublishedMs)} с публикации`
+    : `${dateTime(new Date(scale.min).toISOString())} — ${dateTime(new Date(scale.max).toISOString())}`);
   $<HTMLButtonElement>('zoom-reset').disabled = !current.isZoomedOrPanned();
 }
 
@@ -103,29 +120,65 @@ function renderList() {
   text('video-count', String(index.videos.length));
   text('collection-info', `Сбор каждые ${index.pollIntervalMinutes} мин. Видео отслеживаются ${index.trackingWindowDays} дней после публикации.`);
   text('retention-note', `Срок отслеживания: ${index.trackingWindowDays} дней · Хранение: ${index.retentionDays} дней с публикации`);
+  renderOverlayChoices();
   $('empty-state').hidden = index.videos.length > 0;
   $('video-panel').hidden = index.videos.length === 0;
+}
+
+function renderOverlayChoices() {
+  const main = index?.videos.find((video) => video.id === selectedId);
+  const available = index?.videos.filter((video) => main && Date.parse(video.publishedAt) < Date.parse(main.publishedAt)) ?? [];
+  for (const id of overlayIds) if (!available.some((video) => video.id === id)) { overlayIds.delete(id); overlayColors.delete(id); }
+  const select = $<HTMLSelectElement>('overlay-select');
+  select.replaceChildren(new Option(available.length ? 'Выберите видео…' : 'Нет более ранних видео в базе', ''));
+  for (const video of available) if (!overlayIds.has(video.id)) {
+    select.append(new Option(`${channelName(video.channelId)} · ${dateTime(video.publishedAt)} · ${video.title}`, video.id));
+  }
+  select.disabled = overlayIds.size >= OVERLAY_COLORS.length || select.options.length === 1;
+  $('overlay-selection').replaceChildren(...[...overlayIds].map((id) => {
+    const video = available.find((video) => video.id === id)!;
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'overlay-chip';
+    button.title = video.title; button.setAttribute('aria-label', `Убрать наложение: ${video.title}`);
+    const color = document.createElement('i'); color.style.backgroundColor = overlayColor(id);
+    const label = document.createElement('span'); label.textContent = video.title;
+    const remove = document.createElement('b'); remove.textContent = '×'; remove.setAttribute('aria-hidden', 'true');
+    button.append(color, label, remove);
+    button.addEventListener('click', () => { overlayIds.delete(id); overlayColors.delete(id); renderOverlayChoices(); void refreshDetail(); });
+    return button;
+  }));
+  text('overlay-note', overlayIds.size
+    ? 'Ось X — время с публикации. В подсказке каждого видео показаны его настоящая дата и праздники. До 6 наложений.'
+    : 'Можно добавить несколько видео из сохранённой базы. Линии совмещаются по времени с публикации.');
 }
 
 function renderChart(data: DashboardVideo) {
   const view = chart && chartVideoId === data.video.id && chart.isZoomedOrPanned()
     ? { x: { min: chart.scales.x!.min, max: chart.scales.x!.max }, y: { min: chart.scales.y!.min, max: chart.scales.y!.max } } : null;
   lastMeasuredMs = Date.parse(data.video.lastObservedAt);
-  const measured = data.history.filter((point) => Number.isSafeInteger(Number(point.viewCount)))
-    .map((point) => ({ x: Date.parse(point.observedAt), y: Number(point.viewCount) }));
+  const measured = alignHistory(data.history, data.video.publishedAt, data.video.publishedAt);
   const curve = data.forecast.curve.map((point) => ({ x: Date.parse(point.time), y: point.views }));
-  const firstMs = Date.parse(data.video.firstObservedAt);
-  const endMs = Math.max(lastMeasuredMs, curve.at(-1)?.x ?? lastMeasuredMs);
+  const sources = [data, data, ...overlayDetails];
+  const datasets: ChartDataset<'line', Array<{ x: number; y: number }>>[] = [
+    { label: 'Фактические данные', data: measured, borderColor: '#49d9eb', backgroundColor: '#49d9eb', borderWidth: 2.5, pointRadius: measured.length > 60 ? 0 : 3, pointHoverRadius: 5, tension: 0 },
+    { label: 'Аппроксимация и прогноз', data: curve, borderColor: '#f5bf63', borderWidth: 2, borderDash: [6, 5], pointRadius: 0, pointHoverRadius: 3, tension: 0 },
+  ];
+  for (const overlay of overlayDetails) datasets.push({
+    label: shortTitle(overlay.video.title), data: alignHistory(overlay.history, overlay.video.publishedAt, data.video.publishedAt),
+    borderColor: overlayColor(overlay.video.id), backgroundColor: overlayColor(overlay.video.id),
+    borderWidth: 1.8, pointRadius: 0, pointHoverRadius: 4, tension: 0,
+  });
+  const firstMs = Math.min(Date.parse(data.video.firstObservedAt), ...datasets.flatMap((dataset) => dataset.data[0]?.x ?? []));
+  const endMs = Math.max(lastMeasuredMs, ...datasets.flatMap((dataset) => dataset.data.at(-1)?.x ?? []));
+  const publishedMs = Date.parse(data.video.publishedAt);
+  chartPublishedMs = publishedMs; chartHasOverlays = overlayDetails.length > 0;
   // Use the observation/forecast extent rather than rounding Unix timestamps.
   const timeRange = firstMs === endMs
     ? { min: firstMs - 30 * 60_000, max: firstMs + 30 * 60_000 } : { min: firstMs, max: endMs };
   chart?.destroy();
+  clearHolidayContext();
   chart = new Chart($<HTMLCanvasElement>('views-chart'), {
     type: 'line',
-    data: { datasets: [
-      { label: 'Фактические данные', data: measured, borderColor: '#49d9eb', backgroundColor: '#49d9eb', borderWidth: 2.5, pointRadius: measured.length > 60 ? 0 : 3, pointHoverRadius: 5, tension: 0 },
-      { label: 'Аппроксимация и прогноз', data: curve, borderColor: '#f5bf63', borderWidth: 2, borderDash: [6, 5], pointRadius: 0, pointHoverRadius: 3, tension: 0 },
-    ] },
+    data: { datasets },
     plugins: [cutoffPlugin, dailyLines(data, (index?.pollIntervalMinutes ?? 5) * 120_000)],
     options: {
       responsive: true, maintainAspectRatio: false, animation: false, parsing: false,
@@ -133,7 +186,8 @@ function renderChart(data: DashboardVideo) {
       scales: {
         x: { type: 'linear', ...timeRange, grid: { color: '#23304755' }, border: { display: false }, ticks: {
           color: '#788ca9', maxTicksLimit: 7, maxRotation: 0, font: { size: 10 },
-          callback: (value) => new Date(Number(value)).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }),
+          callback: (value) => overlayDetails.length ? ageLabel(Number(value) - publishedMs)
+            : new Date(Number(value)).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }),
         } },
         y: { grid: { color: '#23304788' }, border: { display: false }, ticks: {
           color: '#788ca9', font: { size: 10 }, maxTicksLimit: 6,
@@ -153,8 +207,21 @@ function renderChart(data: DashboardVideo) {
         backgroundColor: '#0a1220', borderColor: '#364763', borderWidth: 1, padding: 12,
         titleColor: '#b7c8df', bodyColor: '#dce7f3',
         callbacks: {
-          title: (items) => items[0] ? dateTime(new Date(items[0].parsed.x!).toISOString()) : '',
-          label: (item) => `${item.dataset.label}: ${integer(item.parsed.y)}`,
+          title: (items) => {
+            const item = items[0]; if (!item) return '';
+            const source = sources[item.datasetIndex]!;
+            const time = originalTime(item.parsed.x!, source.video.publishedAt, data.video.publishedAt);
+            return [dateTime(new Date(time).toISOString()), `С публикации: ${ageLabel(item.parsed.x! - publishedMs)}`];
+          },
+          label: (item) => `${shortTitle(item.dataset.label ?? '')}: ${integer(item.parsed.y)}`,
+          afterBody: (items) => {
+            const item = items[0]; if (!item) return [];
+            const source = sources[item.datasetIndex]!;
+            const time = originalTime(item.parsed.x!, source.video.publishedAt, data.video.publishedAt);
+            const holidays = holidaysAt(source.holidays, time);
+            showHolidayContext(holidays, time, source.video.title);
+            return holidayTooltipLines(holidays, window.innerWidth < 600 ? 30 : 44);
+          },
         },
       } },
     },
@@ -204,7 +271,10 @@ function renderVideo(data: DashboardVideo) {
   $('model-details').hidden = !forecast.available;
   text('model-summary', `Модель: ${forecast.modelLabel ?? '—'} · соответствие данным R² ${forecast.rSquared?.toFixed(3) ?? '—'}`);
   text('model-formula', forecast.formula ?? '');
-  text('formula-origin', `t — часы с первого наблюдения (${dateTime(video.firstObservedAt)}).`);
+  text('formula-origin', `t — часы с начала выбранных данных (${dateTime(forecast.originAt ?? video.firstObservedAt)}).`);
+  text('fit-range-info', data.fitRange.firstObservedAt && data.fitRange.lastObservedAt
+    ? `В расчёте: ${data.fitRange.observations} замеров · ${dateTime(data.fitRange.firstObservedAt)} — ${dateTime(data.fitRange.lastObservedAt)}. Полная фактическая история остаётся на графике.`
+    : 'В выбранном участке пока нет замеров. Измените границы или дождитесь данных.');
   text('model-quality', forecast.holdoutMae === null ? 'Проверка на отложенных точках пока недоступна.'
     : `Средняя абсолютная ошибка на последних ${forecast.holdoutPoints} точках: ${integer(forecast.holdoutMae)} просмотров. Эти точки не использовались при проверочном обучении.`);
   const result = $('comparison-result'); result.replaceChildren();
@@ -241,11 +311,22 @@ function renderVideo(data: DashboardVideo) {
 
 async function refreshDetail() {
   if (!selectedId) return;
-  detailAbort?.abort(); detailAbort = new AbortController();
+  detailAbort?.abort(); const controller = new AbortController(); detailAbort = controller;
+  const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)]);
   const params = new URLSearchParams({ forecastHours: String(forecastHours), model });
+  params.set('fitStartDay', String(fitStartDay));
+  if (fitEndDay !== null) params.set('fitEndDay', String(fitEndDay));
   if (compareAt) params.set('compareAt', compareAt); else params.set('compareHours', String(compareHours));
   try {
-    const data = await request<DashboardVideo>(`/api/videos/${encodeURIComponent(selectedId)}?${params}`, AbortSignal.any([detailAbort.signal, AbortSignal.timeout(15_000)]));
+    const primary = request<DashboardVideo>(`/api/videos/${encodeURIComponent(selectedId)}?${params}`, signal);
+    const overlayRequests = Promise.allSettled([...overlayIds].map((id) => request<DashboardVideo>(`/api/videos/${encodeURIComponent(id)}?model=linear&forecastHours=1`, signal)));
+    const data = await primary;
+    const overlays = await overlayRequests;
+    signal.throwIfAborted();
+    overlayDetails = overlays.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
+    const failed = overlays.filter((result) => result.status === 'rejected').length;
+    $('overlay-error').hidden = failed === 0;
+    text('overlay-error', `Не удалось загрузить наложений: ${failed}. Нажмите «Обновить данные», чтобы повторить.`);
     $('global-error').hidden = true;
     renderVideo(data);
   } catch (error) {
@@ -306,5 +387,30 @@ $('forecast-horizon').addEventListener('change', () => {
 $('model').addEventListener('change', () => {
   model = $<HTMLSelectElement>('model').value as ModelChoice; void refreshDetail();
 });
+$('overlay-select').addEventListener('change', () => {
+  const id = $<HTMLSelectElement>('overlay-select').value;
+  if (!id || overlayIds.size >= OVERLAY_COLORS.length) return;
+  overlayColors.set(id, OVERLAY_COLORS.find((color) => ![...overlayColors.values()].includes(color))!);
+  overlayIds.add(id); renderOverlayChoices(); void refreshDetail();
+});
+$('fit-window-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const start = $<HTMLInputElement>('fit-start-day');
+  const end = $<HTMLInputElement>('fit-end-day');
+  end.setCustomValidity('');
+  if (end.value !== '' && end.valueAsNumber <= start.valueAsNumber) {
+    end.setCustomValidity('Конец должен быть позже начала.'); end.reportValidity(); return;
+  }
+  fitStartDay = start.valueAsNumber; fitEndDay = end.value === '' ? null : end.valueAsNumber;
+  void refreshDetail();
+});
+$('fit-end-day').addEventListener('input', () => $<HTMLInputElement>('fit-end-day').setCustomValidity(''));
+$('fit-start-day').addEventListener('input', () => $<HTMLInputElement>('fit-end-day').setCustomValidity(''));
+$('fit-reset').addEventListener('click', () => {
+  fitStartDay = 0; fitEndDay = null;
+  $<HTMLInputElement>('fit-start-day').value = '0'; $<HTMLInputElement>('fit-end-day').value = '';
+  $<HTMLInputElement>('fit-end-day').setCustomValidity(''); void refreshDetail();
+});
+startWorldClocks($('world-clocks'));
 void refreshIndex();
 if (document.body.dataset.offline !== 'true') setInterval(() => void refreshIndex(), 60_000);

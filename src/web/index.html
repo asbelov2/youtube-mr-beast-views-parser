@@ -29,11 +29,27 @@
           <article class="metric"><span id="forecast-label" class="metric-label">Прогноз через 1 час</span><strong id="forecast-views" class="amber">—</strong><span id="forecast-date" class="metric-caption"></span></article>
         </div>
         <section class="chart-card">
+          <div class="chart-layout"><div class="chart-main">
           <div class="chart-top"><div><h3>Просмотры во времени</h3><p class="muted" id="history-range"></p></div><div class="legend"><span><i class="legend-real"></i>Фактические данные</span><span><i class="legend-model"></i>Аппроксимация и прогноз</span><span><i class="legend-days"></i>Сутки с публикации</span></div></div>
           <div class="chart-controls">
             <label>Модель<select id="model"><option value="auto">Автоматический выбор</option><option value="linear">Линейная</option><option value="logarithmic">Логарифмическая</option><option value="saturation">С насыщением</option><option value="daily-saturation">Насыщение + суточный ритм</option></select></label>
             <label>Горизонт прогноза<select id="forecast-horizon"><option value="1" selected>1 час</option><option value="6">6 часов</option><option value="24">24 часа</option><option value="48">2 дня</option><option value="72">3 дня</option><option value="96">4 дня</option><option value="168">1 неделя</option></select></label>
             <span class="forecast-explanation">Вертикальная линия — последний реальный замер.</span>
+          </div>
+          <div class="analysis-controls">
+            <form id="fit-window-form" class="fit-window-form">
+              <span class="control-title">Участок аппроксимации · суток с публикации</span>
+              <label>От<input id="fit-start-day" type="number" min="0" max="3650" step="any" value="0" required></label>
+              <label>До<input id="fit-end-day" type="number" min="0" max="3650" step="any" placeholder="Последний замер"></label>
+              <button type="submit" class="secondary-button">Применить</button>
+              <button id="fit-reset" type="button" class="secondary-button">Вся история</button>
+            </form>
+            <p class="muted control-note">2 суток = 48 часов. Пустой конец — до последних данных. Можно указать дробное число суток.</p>
+            <p id="fit-range-info" class="muted" aria-live="polite"></p>
+            <label class="overlay-label">Наложить прошлое видео<select id="overlay-select"><option value="">Выберите видео…</option></select></label>
+            <div id="overlay-selection" class="overlay-selection" aria-label="Наложенные видео"></div>
+            <p id="overlay-note" class="muted control-note">Можно добавить несколько видео. Линии совмещаются по времени с публикации.</p>
+            <p id="overlay-error" class="muted" role="status" hidden></p>
           </div>
           <div class="chart-navigation"><div class="zoom-buttons" role="group" aria-label="Масштаб графика"><button id="zoom-in" type="button" class="secondary-button" aria-label="Приблизить график">+</button><button id="zoom-out" type="button" class="secondary-button" aria-label="Отдалить график">−</button><button id="zoom-reset" type="button" class="secondary-button" disabled>Сбросить масштаб</button></div><span id="chart-view-range" class="muted" aria-live="polite"></span></div>
           <p id="chart-help" class="chart-help">Ctrl + колесо или щипок двумя пальцами — масштаб. Перетаскивание — сдвиг. Двойной щелчок — сброс. Красные линии — каждые 24 часа с публикации; наведите на линию или коснитесь её, чтобы увидеть просмотры.</p>
@@ -41,6 +57,11 @@
           <div id="model-unavailable" class="alert" hidden></div>
           <div id="forecast-warnings" class="forecast-warnings" aria-live="polite"></div>
           <details id="model-details" class="model-details"><summary id="model-summary">О модели</summary><p id="model-formula" class="formula"></p><p id="formula-origin" class="muted"></p><p id="model-quality" class="muted"></p><p class="muted">Аппроксимация описывает наблюдаемый тренд. Высокое соответствие прошлым точкам не гарантирует точность будущего прогноза.</p></details>
+          </div><aside class="world-panel" aria-label="Мировое время и праздники">
+            <h3>Сейчас в мире</h3><div id="world-clocks" class="world-clocks"></div>
+            <section class="holiday-panel"><h3>Праздники под курсором</h3><p id="holiday-date" class="muted">Наведите на точку графика или суточную линию.</p><div id="holiday-list" class="holiday-list"></div></section>
+            <details class="calendar-note"><summary>О календаре выходных</summary><p>США и Канада — федеральные дни. Британия — Англия и Уэльс. ЕС — общие даты: 1 января и 25 декабря. Индия — основные общегосударственные праздники. Банковские дни отмечены отдельно; региональные и разовые выходные могут отсутствовать. Даты лунных праздников требуют официального подтверждения.</p><p>Местная дата: США — Нью-Йорк, Канада — Торонто, Мексика — Мехико, Бразилия — Бразилиа, Индия — Нью-Дели, Филиппины — Манила, Индонезия — Джакарта, ЕС — Брюссель, Британия — Лондон.</p><p>Источник: <a href="https://github.com/commenthol/date-holidays" target="_blank" rel="noopener noreferrer">date-holidays 3.37.0</a>. Данные календаря — <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noopener noreferrer">CC BY-SA 3.0</a>, включая наши дополнения для Канады и выбор общих дат ЕС.</p></details>
+          </aside></div>
         </section>
         <section class="comparison-card"><div class="section-heading"><div><h3>Сравнить с прошлым</h3><p class="muted">Изменение просмотров и скорости прироста между наблюдениями.</p></div></div>
           <div id="periods" class="periods" role="group" aria-label="Период сравнения"><button data-hours="1" class="selected" aria-pressed="true">1 ч</button><button data-hours="2" aria-pressed="false">2 ч</button><button data-hours="3" aria-pressed="false">3 ч</button><button data-hours="4" aria-pressed="false">4 ч</button><button data-hours="6" aria-pressed="false">6 ч</button><button data-hours="8" aria-pressed="false">8 ч</button><button data-hours="12" aria-pressed="false">12 ч</button><button data-hours="24" aria-pressed="false">24 ч</button><button data-hours="48" aria-pressed="false">2 дня</button><button data-hours="72" aria-pressed="false">3 дня</button><button data-hours="96" aria-pressed="false">4 дня</button><button data-hours="168" aria-pressed="false">Неделя</button></div>

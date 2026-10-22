@@ -1,7 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { resolve } from 'node:path';
-import { compareDayAgo, compareGrowth, forecastViews, type ModelChoice } from './analytics.js';
+import { compareDayAgo, compareGrowth, type ModelChoice } from './analytics.js';
+import { fitVideoForecast, readFitWindow } from './fit-window.js';
+import { videoHolidays } from './holidays.js';
 import { DAY_MS, RETENTION_WINDOW_MULTIPLIER, type PublicConfig } from './config.js';
 import type { DashboardIndex, DashboardVideo } from './dashboard-types.js';
 import type { Store } from './storage.js';
@@ -66,7 +68,8 @@ export function createDashboardServer(options: ServerOptions): Server {
       }
       if (url.pathname.startsWith('/api/videos/')) {
         const id = decodeURIComponent(url.pathname.slice('/api/videos/'.length));
-        const video = options.store.listVideos(options.config.channelIds).find((item) => item.id === id);
+        const availableVideos = options.store.listVideos(options.config.channelIds);
+        const video = availableVideos.find((item) => item.id === id);
         if (!video) throw new RequestError(404, 'Видео не найдено.');
         const history = options.store.history(id);
         const compareAt = url.searchParams.get('compareAt');
@@ -82,10 +85,16 @@ export function createDashboardServer(options: ServerOptions): Server {
           throw new RequestError(400, 'Неизвестная модель аппроксимации.');
         }
         const comparison = compareGrowth(history, requestedAt);
+        let fitWindow;
+        try { fitWindow = readFitWindow(url.searchParams); }
+        catch (error) { throw new RequestError(400, (error as Error).message); }
+        const current = now();
+        const horizon = hours(url.searchParams.get('forecastHours'), 24);
         const payload: DashboardVideo = {
           video, history, comparison,
           dayComparison: compareDayAgo(history, comparison, options.config.pollIntervalMs * 2),
-          forecast: forecastViews(history, hours(url.searchParams.get('forecastHours'), 24), model as ModelChoice, now()),
+          ...fitVideoForecast(history, video.publishedAt, horizon, model as ModelChoice, current, fitWindow),
+          holidays: videoHolidays(video, availableVideos, current),
         };
         json(200, payload);
         return;

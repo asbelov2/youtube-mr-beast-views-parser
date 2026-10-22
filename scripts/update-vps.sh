@@ -86,11 +86,15 @@ import { readFileSync } from 'node:fs';
 const data = JSON.parse(readFileSync(process.argv[2], 'utf8'));
 if (!Array.isArray(data.videos)) throw new Error('Invalid dashboard response');
 if (data.videos.length) {
-  const response = await fetch(`http://127.0.0.1:${process.argv[3]}/api/videos/${encodeURIComponent(data.videos[0].id)}?compareHours=13&forecastHours=1&model=daily-saturation`, { signal: AbortSignal.timeout(10000) });
-  if (!response.ok || !(await response.json()).dayComparison) throw new Error('Updated forecast endpoint is unavailable');
+  const response = await fetch(`http://127.0.0.1:${process.argv[3]}/api/videos/${encodeURIComponent(data.videos[0].id)}?compareHours=13&forecastHours=1&model=daily-saturation&fitStartDay=0`, { signal: AbortSignal.timeout(10000) });
+  if (!response.ok) throw new Error('Updated forecast endpoint is unavailable');
+  const detail = await response.json();
+  if (!detail.dayComparison || !detail.fitRange || !Array.isArray(detail.holidays)) throw new Error('Updated analytics fields are unavailable');
 }
 const html = await fetch(`http://127.0.0.1:${process.argv[3]}/`, { signal: AbortSignal.timeout(10000) });
-if (!html.ok || !(await html.text()).includes('value="daily-saturation"')) throw new Error('Updated model selector is unavailable');
+if (!html.ok) throw new Error('Dashboard is unavailable');
+const template = await html.text();
+if (!['value="daily-saturation"', 'id="overlay-select"', 'id="world-clocks"', 'id="fit-window-form"'].every((field) => template.includes(field))) throw new Error('Updated dashboard controls are unavailable');
 console.log('Updated dashboard verified; saved videos: ' + data.videos.length);
 JS
 systemctl is-active --quiet mrbeast.service
