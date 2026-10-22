@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { holidaysBetween, videoHolidays } from '../src/holidays.js';
 import type { VideoSummary } from '../src/types.js';
-import { holidaysAt, holidayTooltipLines } from '../src/web/holiday-info.js';
+import { holidaysAt, holidayTooltipLines, upcomingHolidays } from '../src/web/holiday-info.js';
 
 const calendar = holidaysBetween(Date.parse('2026-01-01Z'), Date.parse('2027-01-02Z'));
 
@@ -31,12 +31,30 @@ test('hovering uses each country local date and excludes the next local midnight
   assert.match(text, /Индонезия/);
 });
 
-test('calendar extends to the age of an older overlay even beyond the current forecast', () => {
+test('calendar covers upcoming holidays independently of the forecast and preserves long overlays', () => {
   const main: VideoSummary = { id: 'main', channelId: 'channel', title: 'Main', publishedAt: '2026-12-20T12:00:00Z',
     firstObservedAt: '2026-12-22T12:00:00Z', lastObservedAt: '2026-12-22T12:00:00Z', viewCount: '1000', observations: 1 };
-  const old: VideoSummary = { ...main, id: 'old', publishedAt: '2026-12-01T12:00:00Z', lastObservedAt: '2026-12-15T12:00:00Z' };
+  const old: VideoSummary = { ...main, id: 'old', publishedAt: '2026-05-01T12:00:00Z', lastObservedAt: '2026-12-15T12:00:00Z' };
   const expanded = videoHolidays(main, [main, old], new Date(main.lastObservedAt));
   assert.ok(expanded.some((h) => h.country === 'EU' && h.date === '2027-01-01'));
+  assert.ok(expanded.some((h) => h.country === 'US' && h.date === '2027-07-04'));
   const withoutOverlay = videoHolidays(main, [main], new Date(main.lastObservedAt));
-  assert.equal(withoutOverlay.some((h) => h.date === '2027-01-01'), false);
+  assert.ok(withoutOverlay.some((h) => h.country === 'EU' && h.date === '2027-01-01'));
+  assert.equal(withoutOverlay.some((h) => h.date === '2027-07-04'), false);
+});
+
+test('upcoming days off include ongoing local days, stop at 90 days and exclude bank days by default', () => {
+  const asOf = Date.parse('2026-12-31T18:00:00Z');
+  const future = holidaysBetween(asOf - 86_400_000, asOf + 110 * 86_400_000);
+  const events = upcomingHolidays([...future].reverse(), asOf);
+  assert.ok(events.some((h) => h.country === 'ID' && h.date === '2027-01-01'));
+  assert.equal(events.some((h) => h.country === 'US' && h.date === '2027-01-01'), true);
+  assert.ok(events.every((h) => h.kind === 'public' && Date.parse(h.endAt) > asOf && Date.parse(h.startAt) < asOf + 90 * 86_400_000));
+  assert.ok(events.every((h, i) => i === 0 || Date.parse(events[i - 1]!.startAt) <= Date.parse(h.startAt)));
+  const withBank = upcomingHolidays(future, asOf, true);
+  assert.ok(withBank.some((h) => h.kind === 'bank'));
+  assert.ok(withBank.length > events.length);
+  const usNewYear = events.find((h) => h.country === 'US' && h.date === '2027-01-01')!;
+  assert.equal(upcomingHolidays([usNewYear], Date.parse(usNewYear.endAt)).length, 0);
+  assert.equal(upcomingHolidays([usNewYear], Date.parse(usNewYear.startAt) - 90 * 86_400_000).length, 0);
 });

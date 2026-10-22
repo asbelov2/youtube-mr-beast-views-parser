@@ -1,5 +1,6 @@
 import Holidays from 'date-holidays';
 import type { HolidayEvent } from './calendar-types.js';
+import { UPCOMING_HOLIDAY_DAYS } from './calendar-types.js';
 import type { VideoSummary } from './types.js';
 
 const REGIONS = [
@@ -63,10 +64,11 @@ export function holidaysBetween(start: number, end: number): HolidayEvent[] {
     .sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt) || a.country.localeCompare(b.country));
 }
 
-/** Cover the full visible age of any overlay, as well as the forecast horizon. */
+/** Cover overlays, the forecast and the separate upcoming-days-off list. */
 export function videoHolidays(video: VideoSummary, availableVideos: VideoSummary[], now: Date): HolidayEvent[] {
   const maxAge = availableVideos.reduce((age, item) => Math.max(age, Date.parse(item.lastObservedAt) - Date.parse(item.publishedAt)), 0);
   const start = Date.parse(video.publishedAt);
-  const end = Math.max(Math.max(now.getTime(), Date.parse(video.lastObservedAt)) + 168 * 3_600_000, start + maxAge);
+  const ahead = Math.max(168 * 3_600_000, UPCOMING_HOLIDAY_DAYS * 86_400_000);
+  const end = Math.max(Math.max(now.getTime(), Date.parse(video.lastObservedAt)) + ahead, start + maxAge);
   return holidaysBetween(start, end);
 }

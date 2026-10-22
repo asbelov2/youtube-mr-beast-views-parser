@@ -1,4 +1,5 @@
 import type { HolidayEvent } from '../calendar-types.js';
+import { UPCOMING_HOLIDAY_DAYS } from '../calendar-types.js';
 
 const NAMES: Record<string, string> = {
   'Independence Day': 'День независимости', 'Republic Day': 'День республики', 'Gandhi Jayanti': 'День рождения Махатмы Ганди',
@@ -10,6 +11,42 @@ export function holidaysAt(calendar: HolidayEvent[], time: number): HolidayEvent
 }
 export function holidayName(holiday: HolidayEvent): string {
   return `${NAMES[holiday.name] ?? holiday.name}${holiday.kind === 'bank' ? ' · банковский выходной' : ''}${holiday.substitute ? ' · перенос выходного' : ''}`;
+}
+
+/** Include ongoing days off, but never completed days or observances. */
+export function upcomingHolidays(calendar: HolidayEvent[], asOf: number, includeBank = false): HolidayEvent[] {
+  const end = asOf + UPCOMING_HOLIDAY_DAYS * 86_400_000;
+  return calendar.filter((event) => (event.kind === 'public' || includeBank && event.kind === 'bank') &&
+    Date.parse(event.endAt) > asOf && Date.parse(event.startAt) < end)
+    .sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt) || a.countryLabel.localeCompare(b.countryLabel, 'ru'));
+}
+
+export function showUpcomingHolidays(calendar: HolidayEvent[], asOf: number, includeBank: boolean, offline: boolean) {
+  const list = document.getElementById('upcoming-holiday-list')!;
+  document.getElementById('upcoming-holiday-range')!.textContent =
+    `${offline ? 'Снимок на' : 'С'} ${new Date(asOf).toLocaleDateString('ru-RU')} · ${UPCOMING_HOLIDAY_DAYS} дней вперёд. Даты — местные.`;
+  list.replaceChildren(...upcomingHolidays(calendar, asOf, includeBank).map((event) => {
+    const item = holidayItem(event);
+    item.dataset.kind = event.kind;
+    item.dataset.date = event.date;
+    if (Date.parse(event.startAt) <= asOf) {
+      const badge = document.createElement('small'); badge.className = 'holiday-ongoing'; badge.textContent = 'Сейчас';
+      item.prepend(badge);
+    }
+    return item;
+  }));
+  if (!list.children.length) list.textContent = 'В этом периоде нет праздничных выходных из выбранного календаря.';
+}
+
+export function holidayItem(event: HolidayEvent): HTMLDivElement {
+  const item = document.createElement('div'); item.className = 'holiday-item';
+  const country = document.createElement('strong'); country.textContent = event.countryLabel;
+  const name = document.createElement('span'); name.textContent = holidayName(event);
+  const date = document.createElement('small');
+  date.textContent = new Date(`${event.date}T12:00:00Z`).toLocaleDateString('ru-RU', {
+    day: 'numeric', month: 'long', year: 'numeric', weekday: 'short', timeZone: 'UTC',
+  });
+  item.append(country, name, date); return item;
 }
 
 export function holidayTooltipLines(events: HolidayEvent[], width = 42): string[] {
@@ -36,19 +73,13 @@ export function showHolidayContext(events: HolidayEvent[], time: number, videoTi
   const list = document.getElementById('holiday-list');
   if (!caption || !list) return;
   caption.textContent = `${new Date(time).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })} · ${videoTitle}`;
-  list.replaceChildren(...events.map((event) => {
-    const item = document.createElement('div'); item.className = 'holiday-item';
-    const country = document.createElement('strong'); country.textContent = event.countryLabel;
-    const name = document.createElement('span'); name.textContent = holidayName(event);
-    const date = document.createElement('small'); date.textContent = event.date;
-    item.append(country, name, date); return item;
-  }));
+  list.replaceChildren(...events.map(holidayItem));
   if (!events.length) list.textContent = 'В календаре нет праздников на это время.';
 }
 
 export function clearHolidayContext() {
   const caption = document.getElementById('holiday-date');
   const list = document.getElementById('holiday-list');
-  if (caption) caption.textContent = 'Наведите на точку графика или суточную линию.';
+  if (caption) caption.textContent = 'Наведите на точку, суточную линию или отметку «!».';
   if (list) list.replaceChildren();
 }

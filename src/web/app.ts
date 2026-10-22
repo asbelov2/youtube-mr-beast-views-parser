@@ -4,9 +4,10 @@ import type { DashboardIndex, DashboardVideo } from '../dashboard-types.js';
 import { channelName } from '../channels.js';
 import zoomPlugin from 'chartjs-plugin-zoom';
 import { dailyLines } from './chart-day-tooltip.js';
+import { holidayAnnotations } from './chart-holiday-markers.js';
 import { ageLabel, alignHistory, originalTime } from './chart-time.js';
 import { startWorldClocks } from './world-clocks.js';
-import { clearHolidayContext, holidayTooltipLines, holidaysAt, showHolidayContext } from './holiday-info.js';
+import { clearHolidayContext, holidayTooltipLines, holidaysAt, showHolidayContext, showUpcomingHolidays } from './holiday-info.js';
 
 // The package's CommonJS declarations misidentify its ESM default under NodeNext.
 Chart.register(LineController, LineElement, PointElement, LinearScale, Tooltip, zoomPlugin as unknown as Plugin);
@@ -43,6 +44,8 @@ let fitEndDay: number | null = null;
 const overlayIds = new Set<string>();
 const overlayColors = new Map<string, string>();
 let overlayDetails: DashboardVideo[] = [];
+let currentVideo: DashboardVideo | undefined;
+const includeBankHolidays = () => $<HTMLInputElement>('include-bank-holidays').checked;
 const OVERLAY_COLORS = ['#bd9bfa', '#78d6a3', '#f38db3', '#74a9fa', '#ef956b', '#c8d770'];
 const overlayColor = (id: string) => overlayColors.get(id) ?? OVERLAY_COLORS[0]!;
 const shortTitle = (title: string) => {
@@ -179,7 +182,13 @@ function renderChart(data: DashboardVideo) {
   chart = new Chart($<HTMLCanvasElement>('views-chart'), {
     type: 'line',
     data: { datasets },
-    plugins: [cutoffPlugin, dailyLines(data, (index?.pollIntervalMinutes ?? 5) * 120_000)],
+    plugins: [cutoffPlugin, dailyLines(data, (index?.pollIntervalMinutes ?? 5) * 120_000),
+      holidayAnnotations([
+        { id: data.video.id, title: data.video.title, publishedAt: data.video.publishedAt, holidays: data.holidays, color: '#c7b1ed' },
+        ...overlayDetails.map((overlay) => ({ id: overlay.video.id, title: overlay.video.title,
+          publishedAt: overlay.video.publishedAt, holidays: overlay.holidays, color: overlayColor(overlay.video.id),
+          startAt: Date.parse(overlay.video.firstObservedAt), endAt: Date.parse(overlay.video.lastObservedAt) })),
+      ], data.video.publishedAt, includeBankHolidays)],
     options: {
       responsive: true, maintainAspectRatio: false, animation: false, parsing: false,
       interaction: { mode: 'nearest', intersect: false },
@@ -234,6 +243,8 @@ function renderChart(data: DashboardVideo) {
 }
 
 function renderVideo(data: DashboardVideo) {
+  currentVideo = data;
+  renderUpcomingHolidays();
   const { video, comparison, dayComparison, forecast } = data;
   const tracking = index?.videos.find((item) => item.id === video.id)?.tracking ?? false;
   text('video-title', video.title);
@@ -307,6 +318,10 @@ function renderVideo(data: DashboardVideo) {
     row.append(time, views); return row;
   }));
   renderChart(data);
+}
+
+function renderUpcomingHolidays() {
+  if (currentVideo) showUpcomingHolidays(currentVideo.holidays, Date.parse(index!.generatedAt), includeBankHolidays(), document.body.dataset.offline === 'true');
 }
 
 async function refreshDetail() {
@@ -384,6 +399,7 @@ $('custom-comparison').addEventListener('submit', (event) => {
 $('forecast-horizon').addEventListener('change', () => {
   forecastHours = Number($<HTMLSelectElement>('forecast-horizon').value); void refreshDetail();
 });
+$('include-bank-holidays').addEventListener('change', () => { renderUpcomingHolidays(); chart?.update('none'); });
 $('model').addEventListener('change', () => {
   model = $<HTMLSelectElement>('model').value as ModelChoice; void refreshDetail();
 });

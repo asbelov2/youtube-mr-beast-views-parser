@@ -94,7 +94,7 @@ if (data.videos.length) {
 const html = await fetch(`http://127.0.0.1:${process.argv[3]}/`, { signal: AbortSignal.timeout(10000) });
 if (!html.ok) throw new Error('Dashboard is unavailable');
 const template = await html.text();
-if (!['value="daily-saturation"', 'id="overlay-select"', 'id="world-clocks"', 'id="fit-window-form"'].every((field) => template.includes(field))) throw new Error('Updated dashboard controls are unavailable');
+if (!['value="daily-saturation"', 'id="overlay-select"', 'id="world-clocks"', 'id="fit-window-form"', 'id="holiday-markers"', 'id="upcoming-holiday-list"'].every((field) => template.includes(field))) throw new Error('Updated dashboard controls are unavailable');
 console.log('Updated dashboard verified; saved videos: ' + data.videos.length);
 JS
 systemctl is-active --quiet mrbeast.service
