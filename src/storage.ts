@@ -28,6 +28,9 @@ export class Store {
         PRIMARY KEY(video_id, observed_at)
       );
       CREATE INDEX IF NOT EXISTS snapshots_by_date ON view_snapshots(observed_at);
+      CREATE TABLE IF NOT EXISTS excluded_shorts (
+        video_id TEXT PRIMARY KEY REFERENCES videos(id) ON DELETE CASCADE
+      );
     `);
   }
 
@@ -36,9 +39,35 @@ export class Store {
     const rows = this.db.prepare(`
       SELECT id FROM videos
       WHERE channel_id = ? AND published_at > ? AND published_at <= ?
+        AND NOT EXISTS (SELECT 1 FROM excluded_shorts e WHERE e.video_id = videos.id)
       ORDER BY published_at DESC, id
     `).all(channelId, cutoff, now.toISOString());
     return rows.map((row) => String(row.id));
+  }
+
+  excludedShortIds(channelId: string): string[] {
+    return this.db.prepare(`SELECT e.video_id FROM excluded_shorts e JOIN videos v ON v.id = e.video_id
+      WHERE v.channel_id = ?`).all(channelId).map((row) => String(row.video_id));
+  }
+
+  /** Hide previously collected Shorts without removing their observations.
+   * Only IDs already stored for this channel can be classified here.
+   */
+  excludeShorts(channelId: string, ids: readonly string[]): void {
+    if (!ids.length) return;
+    const exclude = this.db.prepare(`
+      INSERT INTO excluded_shorts (video_id)
+      SELECT id FROM videos WHERE id = ? AND channel_id = ?
+      ON CONFLICT(video_id) DO NOTHING
+    `);
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const id of new Set(ids)) exclude.run(id, channelId);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   record(videos: Video[], observedAt: string): void {
@@ -99,7 +128,9 @@ export class Store {
         FROM view_snapshots GROUP BY video_id
       ) a ON a.video_id = v.id
       JOIN view_snapshots s ON s.video_id = v.id AND s.observed_at = a.last_observed_at
-      WHERE v.channel_id IN (${ids.map(() => '?').join(',')}) ORDER BY v.published_at DESC, v.id
+      WHERE v.channel_id IN (${ids.map(() => '?').join(',')})
+        AND NOT EXISTS (SELECT 1 FROM excluded_shorts e WHERE e.video_id = v.id)
+      ORDER BY v.published_at DESC, v.id
     `).all(...ids).map((row) => ({
       id: String(row.id), channelId: String(row.channel_id), title: String(row.title),
       publishedAt: String(row.published_at), firstObservedAt: String(row.first_observed_at),
@@ -119,6 +150,7 @@ export class Store {
     const rows = this.db.prepare(`
       SELECT v.id, v.channel_id, v.title, v.published_at, s.observed_at, s.view_count
       FROM view_snapshots s JOIN videos v ON v.id = s.video_id
+      WHERE NOT EXISTS (SELECT 1 FROM excluded_shorts e WHERE e.video_id = v.id)
       ORDER BY s.observed_at, v.id
     `).iterate();
     for (const row of rows) {

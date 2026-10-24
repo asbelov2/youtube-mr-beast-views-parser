@@ -26,6 +26,7 @@ test('records only eligible channel videos and retains exact large view counts',
     video({ id: 'other-channel', channelId: 'another-channel' }),
   ];
   const collector = new Collector(CONFIG, {
+    shortVideoIds: async () => [],
     recentVideoIds: async () => data.map((v) => v.id),
     videos: async () => data,
   }, store, () => NOW);
@@ -44,6 +45,7 @@ test('rechecks the window after requests: a video may expire during collection',
   let calls = 0;
   const nearBoundary = video({ publishedAt: new Date(NOW.getTime() - 14 * DAY_MS + 1).toISOString() });
   const collector = new Collector(CONFIG, {
+    shortVideoIds: async () => [],
     recentVideoIds: async () => [nearBoundary.id],
     videos: async () => [nearBoundary],
   }, store, () => new Date(NOW.getTime() + calls++));
@@ -56,8 +58,10 @@ test('existing active videos keep updating between full scans', async (t) => {
   t.after(() => store.close());
   let now = NOW;
   const flags: boolean[] = [];
+  const shortFlags: boolean[] = [];
   const requested: string[][] = [];
   const collector = new Collector(CONFIG, {
+    shortVideoIds: async (_signal, fullScan) => { shortFlags.push(fullScan ?? true); return []; },
     recentVideoIds: async (_cutoff, _signal, fullScan) => {
       flags.push(fullScan ?? true);
       return flags.length === 1 ? ['fresh-video'] : [];
@@ -73,6 +77,7 @@ test('existing active videos keep updating between full scans', async (t) => {
   now = new Date(NOW.getTime() + CONFIG.fullDiscoveryIntervalMs);
   await collector.collect();
   assert.deepEqual(flags, [true, false, true]);
+  assert.deepEqual(shortFlags, flags);
   assert.deepEqual(requested, [['fresh-video'], ['fresh-video'], ['fresh-video']]);
   assert.equal([...store.csv()].length, 4);
 });
@@ -84,6 +89,7 @@ test('aging out stops statistics requests but preserves old observations', async
   const v = video({ publishedAt: new Date(NOW.getTime() - 14 * DAY_MS + 60_000).toISOString() });
   const requested: string[][] = [];
   const collector = new Collector(CONFIG, {
+    shortVideoIds: async () => [],
     recentVideoIds: async (cutoff) => Date.parse(v.publishedAt) > cutoff.getTime() ? [v.id] : [],
     videos: async (ids) => { requested.push(ids); return ids.map(() => v); },
   }, store, () => now);
@@ -99,6 +105,7 @@ test('shrinking and growing the configured window changes eligibility without de
   t.after(() => store.close());
   const v = video({ publishedAt: new Date(NOW.getTime() - 10 * DAY_MS).toISOString() });
   const youtube = {
+    shortVideoIds: async () => [],
     recentVideoIds: async (cutoff: Date) => Date.parse(v.publishedAt) > cutoff.getTime() ? [v.id] : [],
     videos: async (ids: string[]) => ids.map(() => v),
   };
@@ -115,6 +122,7 @@ test('a failed cycle saves no partial observations and retries full discovery ne
   const flags: boolean[] = [];
   let fail = true;
   const collector = new Collector(CONFIG, {
+    shortVideoIds: async () => [],
     recentVideoIds: async (_cutoff, _signal, fullScan) => { flags.push(fullScan!); return ['fresh-video']; },
     videos: async () => {
       if (fail) throw new Error('API unavailable');
@@ -133,6 +141,7 @@ test('an aborted collection does not write observations', async (t) => {
   t.after(() => store.close());
   const abort = new AbortController();
   const collector = new Collector(CONFIG, {
+    shortVideoIds: async () => [],
     recentVideoIds: async () => ['fresh-video'],
     videos: async () => { abort.abort(); return [video()]; },
   }, store, () => NOW);
@@ -148,9 +157,54 @@ test('automatic cleanup runs even when YouTube is unavailable', async (t) => {
     video({ id: 'archived', publishedAt: new Date(NOW.getTime() - 20 * DAY_MS).toISOString() }),
   ], NOW.toISOString());
   const collector = new Collector(CONFIG, {
+    shortVideoIds: async () => [],
     recentVideoIds: async () => { throw new Error('offline'); }, videos: async () => [],
   }, store, () => NOW);
   await assert.rejects(collector.collect(), /offline/);
   assert.equal(store.history('expired').length, 0);
   assert.equal(store.history('archived').length, 1);
+});
+
+test('Shorts are never requested or recorded and existing active and archived Shorts become hidden', async (t) => {
+  const store = new Store(':memory:'); t.after(() => store.close());
+  const archived = video({ id: 'archived-short', publishedAt: new Date(NOW.getTime() - 20 * DAY_MS).toISOString() });
+  store.record([video({ id: 'known-short' }), archived, video({ id: 'regular', title: 'An ordinary short video' })], NOW.toISOString());
+  const requested: string[][] = [];
+  let firstScan = true;
+  const collector = new Collector(CONFIG, {
+    shortVideoIds: async () => {
+      const ids = firstScan ? ['known-short', 'new-short', 'archived-short'] : ['new-short']; firstScan = false; return ids;
+    },
+    recentVideoIds: async () => ['regular', 'new-short', 'known-short'],
+    videos: async (ids) => { requested.push(ids); return ids.map((id) => video({ id })); },
+  }, store, () => new Date(NOW.getTime() + 300_000));
+  const result = await collector.collect();
+  assert.deepEqual(requested, [['regular']]);
+  assert.equal(result.recorded, 1);
+  assert.equal(result.skipped, 2);
+  assert.deepEqual(store.listVideos(CONFIG.channelId).map((v) => v.id), ['regular']);
+  assert.equal(store.history('new-short').length, 0);
+  assert.equal(store.history('known-short').length, 1);
+  assert.equal(store.history('archived-short').length, 1);
+  assert.equal(store.history('regular').length, 2);
+  await collector.collect();
+  assert.deepEqual(requested[1], ['regular']);
+});
+
+test('an unavailable Shorts playlist prevents unfiltered collection and retries full discovery', async (t) => {
+  const store = new Store(':memory:'); t.after(() => store.close());
+  let fail = true;
+  let uploads = 0;
+  const flags: boolean[] = [];
+  const collector = new Collector(CONFIG, {
+    shortVideoIds: async (_signal, fullScan) => { flags.push(fullScan!); if (fail) throw new Error('Shorts playlist unavailable'); return []; },
+    recentVideoIds: async () => { uploads++; return ['fresh-video']; },
+    videos: async () => [video()],
+  }, store, () => NOW);
+  await assert.rejects(collector.collect(), /Shorts playlist unavailable/);
+  assert.equal(uploads, 0);
+  assert.deepEqual(store.history('fresh-video'), []);
+  fail = false;
+  assert.equal((await collector.collect()).recorded, 1);
+  assert.deepEqual(flags, [true, true]);
 });

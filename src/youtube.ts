@@ -48,6 +48,8 @@ export class YouTubeClient {
   private readonly fetch: typeof fetch;
   private readonly retryDelayMs: number;
   private uploadsPlaylistId: string | undefined;
+  private readonly knownShortIds = new Set<string>();
+  private shortsLoaded = false;
 
   constructor(private readonly options: ClientOptions) {
     this.fetch = options.fetch ?? globalThis.fetch;
@@ -120,6 +122,24 @@ export class YouTubeClient {
 
   async recentVideoIds(cutoff: Date, signal?: AbortSignal, fullScan = true): Promise<string[]> {
     const playlistId = await this.uploadsPlaylist(signal);
+    return this.playlistVideoIds(playlistId, cutoff, signal, fullScan);
+  }
+
+  /** YouTube's channel Shorts playlist distinguishes Shorts from short regular
+   * videos without guessing from duration, title or thumbnail dimensions.
+   * UUSH playlists are available through playlistItems, but are not a documented
+   * relatedPlaylists field. A failed lookup must fail the cycle, not disable filtering.
+   */
+  async shortVideoIds(signal?: AbortSignal, fullScan = true): Promise<string[]> {
+    const playlistId = `UUSH${this.options.channelId.slice(2)}`;
+    const ids = await this.playlistVideoIds(playlistId, null, signal, fullScan || !this.shortsLoaded);
+    // Commit the cache only after every requested page has succeeded.
+    for (const id of ids) this.knownShortIds.add(id);
+    this.shortsLoaded = true;
+    return [...this.knownShortIds];
+  }
+
+  private async playlistVideoIds(playlistId: string, cutoff: Date | null, signal?: AbortSignal, fullScan = true): Promise<string[]> {
     const ids = new Set<string>();
     const seenTokens = new Set<string>();
     let pageToken: string | undefined;
@@ -136,7 +156,7 @@ export class YouTubeClient {
         const publishedAt = typeof details.videoPublishedAt === 'string'
           ? Date.parse(details.videoPublishedAt) : NaN;
         // Missing dates are resolved via videos.list; the canonical date is checked again.
-        if (!Number.isFinite(publishedAt) || publishedAt > cutoff.getTime()) ids.add(id);
+        if (cutoff === null || !Number.isFinite(publishedAt) || publishedAt > cutoff.getTime()) ids.add(id);
       }
       const data = object(response, 'playlist response');
       pageToken = data.nextPageToken === undefined

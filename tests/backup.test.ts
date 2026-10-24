@@ -73,3 +73,17 @@ test('backup rejects broken foreign keys while leaving the original observations
   assert.equal(existsSync(destination), false);
   assert.equal(original.prepare('SELECT count(*) AS n FROM view_snapshots').get()!.n, 1);
 });
+
+test('backup preserves Shorts classifications and their complete stored history', (t) => {
+  const { source, destination, run } = fixture(t);
+  const store = new Store(source); t.after(() => store.close());
+  store.record([video(), video({ id: 'short' })], NOW.toISOString());
+  store.excludeShorts(video().channelId, ['short']);
+  const result = run();
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), { videos: 2, snapshots: 2 });
+  const copy = new Store(destination); t.after(() => copy.close());
+  assert.deepEqual(copy.listVideos(video().channelId).map((v) => v.id), ['fresh-video']);
+  assert.deepEqual(copy.excludedShortIds(video().channelId), ['short']);
+  assert.equal(copy.history('short').length, 1);
+});

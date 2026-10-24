@@ -48,8 +48,19 @@ test('same-day events share badges and nearby badges cluster without dropping co
   assert.equal(clusterHolidayMarkers(all, (t) => (t - time(holiday.startAt)) / hour * 40, 0, 1000).length, 2);
 });
 
-test('23-hour local days use their actual UTC duration instead of assuming 24 hours', () => {
+test('a holiday on a 23-hour Sunday is hidden as a weekend day', () => {
   const shortDay = { ...holiday, date: '2026-03-08', startAt: '2026-03-08T05:00:00Z', endAt: '2026-03-09T04:00:00Z' };
-  const mark = holidayMarkers([{ ...main, holidays: [shortDay] }], main.publishedAt, time(shortDay.startAt), time(shortDay.endAt))[0]!;
-  assert.equal(mark.time, time(shortDay.startAt) + 11.5 * hour);
+  assert.equal(holidayMarkers([{ ...main, holidays: [shortDay] }], main.publishedAt, time(shortDay.startAt), time(shortDay.endAt)).length, 0);
+});
+
+test('weekend filtering uses an overlay original local date and keeps weekday substitute holidays', () => {
+  const saturday = { ...holiday, date: '2026-07-04', name: 'Independence Day', startAt: '2026-07-04T04:00:00Z', endAt: '2026-07-05T04:00:00Z' };
+  const friday = { ...saturday, date: '2026-07-03', startAt: '2026-07-03T04:00:00Z', endAt: '2026-07-04T04:00:00Z', substitute: true };
+  const old = { ...main, publishedAt: '2026-07-03T16:00:00Z', holidays: [saturday, friday, { ...saturday, kind: 'bank' as const }] };
+  const target = '2026-07-06T16:00:00Z';
+  const marks = holidayMarkers([old], target, time(target), time('2026-07-10Z'), true);
+  assert.equal(marks.length, 1);
+  assert.equal(marks[0]!.events[0]!.date, '2026-07-03');
+  assert.equal(marks[0]!.events[0]!.substitute, true);
+  assert.equal(new Date(marks[0]!.time).getUTCDay(), 1); // Friday shifted onto Monday.
 });

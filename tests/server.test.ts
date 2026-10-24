@@ -158,6 +158,17 @@ test('an empty database is valid and does not create example or fabricated data'
   assert.deepEqual(data.videos, []);
 });
 
+test('previously collected Shorts disappear from the index, detail endpoint and CSV without losing snapshots', async (t) => {
+  const { base, store } = await fixture(t);
+  store.record([video({ id: 'saved-short' })], NOW.toISOString());
+  store.excludeShorts(MRBEAST_CHANNEL_ID, ['saved-short']);
+  const index = await (await fetch(`${base}/api/videos`)).json() as DashboardIndex;
+  assert.deepEqual(index.videos.map((v) => v.id), ['fresh-video']);
+  assert.equal((await fetch(`${base}/api/videos/saved-short`)).status, 404);
+  assert.doesNotMatch(await (await fetch(`${base}/api/export.csv`)).text(), /saved-short/);
+  assert.equal(store.history('saved-short').length, 1);
+});
+
 test('both channels appear in publication order and Gaming history is accessible without unrelated channels', async (t) => {
   const { base, store } = await fixture(t);
   const gaming = video({ id: 'gaming-video', channelId: MRBEAST_GAMING_CHANNEL_ID, publishedAt: NOW.toISOString() });

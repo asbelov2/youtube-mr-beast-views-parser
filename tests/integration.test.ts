@@ -23,6 +23,9 @@ test('real HTTP -> uploads -> view counts -> persistent SQLite -> CSV, including
     if (url.pathname.endsWith('/channels')) {
       res.end(JSON.stringify({ items: [{ contentDetails: { relatedPlaylists: { uploads: 'uploads-id' } } }] }));
     } else if (url.pathname.endsWith('/playlistItems')) {
+      if (url.searchParams.get('playlistId')?.startsWith('UUSH')) {
+        res.end(JSON.stringify({ items: [] })); return;
+      }
       res.end(JSON.stringify({ items: [{ contentDetails: { videoId: 'fresh-video', videoPublishedAt: publishedAt } }] }));
     } else if (url.pathname.endsWith('/videos')) {
       res.end(JSON.stringify({ items: [apiVideo({ statistics: { viewCount: count } })] }));

@@ -8,7 +8,7 @@ export class Collector {
 
   constructor(
     private readonly config: Pick<Config, 'trackingWindowMs' | 'fullDiscoveryIntervalMs'> & { channelId: string },
-    private readonly youtube: Pick<YouTubeClient, 'recentVideoIds' | 'videos'>,
+    private readonly youtube: Pick<YouTubeClient, 'recentVideoIds' | 'shortVideoIds' | 'videos'>,
     private readonly store: Store,
     private readonly now: () => Date = () => new Date(),
   ) {}
@@ -21,20 +21,24 @@ export class Collector {
     const cutoff = new Date(startedAt.getTime() - this.config.trackingWindowMs);
     const fullScan = this.lastFullDiscoveryAt === undefined ||
       startedAt.getTime() - this.lastFullDiscoveryAt >= this.config.fullDiscoveryIntervalMs;
+    const shortIds = await this.youtube.shortVideoIds(signal, fullScan);
+    const shorts = new Set([...shortIds, ...this.store.excludedShortIds(this.config.channelId)]);
     const discoveredIds = await this.youtube.recentVideoIds(cutoff, signal, fullScan);
     const activeIds = this.store.activeVideoIds(
       this.config.channelId, startedAt, this.config.trackingWindowMs,
     );
     const ids = [...new Set([...discoveredIds, ...activeIds])];
-    const videos = await this.youtube.videos(ids, signal);
+    const videos = await this.youtube.videos(ids.filter((id) => !shorts.has(id)), signal);
     signal?.throwIfAborted();
     const observedAt = this.now();
     const eligible = videos.filter((video) =>
       video.channelId === this.config.channelId &&
+      !shorts.has(video.id) &&
       isWithinTrackingWindow(video.publishedAt, observedAt, this.config.trackingWindowMs),
     );
     // No permanent "finished" flag: increasing the window reactivates eligible videos.
     // All requests must succeed before saving a cycle, so failed runs leave no partial data.
+    this.store.excludeShorts(this.config.channelId, shortIds);
     this.store.record(eligible, observedAt.toISOString());
     if (fullScan) this.lastFullDiscoveryAt = startedAt.getTime();
     return {

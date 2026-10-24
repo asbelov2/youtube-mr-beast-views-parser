@@ -1,4 +1,5 @@
 import type { HolidayEvent } from '../calendar-types.js';
+import { isWeekendHoliday } from './holiday-info.js';
 
 export interface HolidayMarkerSource {
   id: string;
@@ -30,6 +31,7 @@ export function holidayMarkers(sources: HolidayMarkerSource[], targetPublishedAt
     const shift = Date.parse(targetPublishedAt) - Date.parse(source.publishedAt);
     const groups = new Map<string, HolidayMarker>();
     for (const event of source.holidays) {
+      if (isWeekendHoliday(event)) continue;
       if (event.kind !== 'public' && !(includeBank && event.kind === 'bank')) continue;
       const start = Date.parse(event.startAt);
       const end = Date.parse(event.endAt);

@@ -31,6 +31,18 @@ test('hovering uses each country local date and excludes the next local midnight
   assert.match(text, /Индонезия/);
 });
 
+test('graph tooltips omit Saturday and Sunday holidays by local date while keeping observed weekdays', () => {
+  const fridayInUs = holidaysAt(calendar, Date.parse('2026-07-04T02:00:00Z'));
+  assert.ok(fridayInUs.some((h) => h.country === 'US' && h.date === '2026-07-03' && h.substitute));
+  assert.equal(holidaysAt(calendar, Date.parse('2026-07-04T18:00:00Z')).some((h) => h.country === 'US'), false);
+  // India has already entered Saturday while UTC is still Friday.
+  assert.equal(holidaysAt(calendar, Date.parse('2026-08-14T20:00:00Z')).some((h) => h.country === 'IN'), false);
+  // Indonesia has entered Monday while UTC is still Sunday.
+  assert.ok(holidaysAt(calendar, Date.parse('2026-08-16T18:00:00Z')).some((h) => h.country === 'ID' && h.date === '2026-08-17'));
+  // The separate upcoming list remains a complete calendar, including weekend holidays.
+  assert.ok(upcomingHolidays(calendar, Date.parse('2026-07-03Z')).some((h) => h.country === 'US' && h.date === '2026-07-04'));
+});
+
 test('calendar covers upcoming holidays independently of the forecast and preserves long overlays', () => {
   const main: VideoSummary = { id: 'main', channelId: 'channel', title: 'Main', publishedAt: '2026-12-20T12:00:00Z',
     firstObservedAt: '2026-12-22T12:00:00Z', lastObservedAt: '2026-12-22T12:00:00Z', viewCount: '1000', observations: 1 };

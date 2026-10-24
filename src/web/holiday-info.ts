@@ -7,7 +7,13 @@ const NAMES: Record<string, string> = {
   'Good Friday': 'Страстная пятница', 'Easter Monday': 'Пасхальный понедельник', 'Carnival': 'Карнавал',
 };
 export function holidaysAt(calendar: HolidayEvent[], time: number): HolidayEvent[] {
-  return calendar.filter((holiday) => Date.parse(holiday.startAt) <= time && time < Date.parse(holiday.endAt));
+  return calendar.filter((holiday) => !isWeekendHoliday(holiday) && Date.parse(holiday.startAt) <= time && time < Date.parse(holiday.endAt));
+}
+
+/** Use the country's calendar date, never the browser's weekday or plotted age. */
+export function isWeekendHoliday(holiday: HolidayEvent): boolean {
+  const day = new Date(`${holiday.date}T00:00:00Z`).getUTCDay();
+  return day === 0 || day === 6;
 }
 export function holidayName(holiday: HolidayEvent): string {
   return `${NAMES[holiday.name] ?? holiday.name}${holiday.kind === 'bank' ? ' · банковский выходной' : ''}${holiday.substitute ? ' · перенос выходного' : ''}`;

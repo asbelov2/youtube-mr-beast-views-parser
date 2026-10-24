@@ -49,6 +49,43 @@ test('a lightweight discovery reads only the first upload page', async () => {
   assert.equal(playlistRequests, 1);
 });
 
+test('Shorts use their own playlist, scan all pages initially and retain older IDs during light polls', async () => {
+  const tokens: Array<string | null> = [];
+  let poll = 0;
+  const youtube = client(async (input, init) => {
+    const url = new URL(String(input));
+    assert.equal(url.pathname.endsWith('/playlistItems'), true);
+    assert.equal(url.searchParams.get('playlistId'), `UUSH${MRBEAST_CHANNEL_ID.slice(2)}`);
+    assert.equal(url.searchParams.get('part'), 'contentDetails');
+    assert.equal(url.searchParams.has('key'), false);
+    assert.equal(new Headers(init?.headers).get('X-Goog-Api-Key'), 'test-secret');
+    const token = url.searchParams.get('pageToken'); tokens.push(token);
+    if (token) return json({ items: [{ contentDetails: { videoId: 'old-short', videoPublishedAt: '2020-01-01Z' } }] });
+    return json({ items: [{ contentDetails: { videoId: poll++ === 0 ? 'short' : 'new-short' } }], nextPageToken: 'second' });
+  });
+  // Even a light poll must populate the complete cache on first use.
+  assert.deepEqual(await youtube.shortVideoIds(undefined, false), ['short', 'old-short']);
+  assert.deepEqual(await youtube.shortVideoIds(undefined, false), ['short', 'old-short', 'new-short']);
+  assert.deepEqual(tokens, [null, 'second', null]);
+  await youtube.shortVideoIds(undefined, true);
+  assert.deepEqual(tokens.slice(-2), [null, 'second']);
+});
+
+test('a failed Shorts lookup propagates the error and cannot commit an incomplete cache', async () => {
+  let fail = true;
+  const tokens: Array<string | null> = [];
+  const youtube = client(async (input) => {
+    const token = new URL(String(input)).searchParams.get('pageToken'); tokens.push(token);
+    if (!token) return json({ items: [{ contentDetails: { videoId: 'first' } }], nextPageToken: 'second' });
+    return fail ? json({ error: { errors: [{ reason: 'playlistNotFound' }] } }, 404)
+      : json({ items: [{ contentDetails: { videoId: 'second' } }] });
+  });
+  await assert.rejects(youtube.shortVideoIds(), (error: unknown) => error instanceof YouTubeApiError && error.status === 404);
+  fail = false;
+  assert.deepEqual(await youtube.shortVideoIds(undefined, false), ['first', 'second']);
+  assert.deepEqual(tokens, [null, 'second', null, 'second']);
+});
+
 test('detects repeated pagination tokens instead of looping forever', async () => {
   const youtube = client(async (input) => String(input).includes('/channels?')
     ? json({ items: [{ contentDetails: { relatedPlaylists: { uploads: 'u' } } }] })
