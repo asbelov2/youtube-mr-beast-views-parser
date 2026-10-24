@@ -7,7 +7,7 @@ const NAMES: Record<string, string> = {
   'Good Friday': 'Страстная пятница', 'Easter Monday': 'Пасхальный понедельник', 'Carnival': 'Карнавал',
 };
 export function holidaysAt(calendar: HolidayEvent[], time: number): HolidayEvent[] {
-  return calendar.filter((holiday) => !isWeekendHoliday(holiday) && Date.parse(holiday.startAt) <= time && time < Date.parse(holiday.endAt));
+  return calendar.filter((holiday) => Date.parse(holiday.startAt) <= time && time < Date.parse(holiday.endAt));
 }
 
 /** Use the country's calendar date, never the browser's weekday or plotted age. */

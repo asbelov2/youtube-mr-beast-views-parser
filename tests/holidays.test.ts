@@ -31,12 +31,12 @@ test('hovering uses each country local date and excludes the next local midnight
   assert.match(text, /Индонезия/);
 });
 
-test('graph tooltips omit Saturday and Sunday holidays by local date while keeping observed weekdays', () => {
+test('holiday tooltips and the right panel keep weekend holidays and observed weekdays by local date', () => {
   const fridayInUs = holidaysAt(calendar, Date.parse('2026-07-04T02:00:00Z'));
   assert.ok(fridayInUs.some((h) => h.country === 'US' && h.date === '2026-07-03' && h.substitute));
-  assert.equal(holidaysAt(calendar, Date.parse('2026-07-04T18:00:00Z')).some((h) => h.country === 'US'), false);
+  assert.ok(holidaysAt(calendar, Date.parse('2026-07-04T18:00:00Z')).some((h) => h.country === 'US' && h.date === '2026-07-04'));
   // India has already entered Saturday while UTC is still Friday.
-  assert.equal(holidaysAt(calendar, Date.parse('2026-08-14T20:00:00Z')).some((h) => h.country === 'IN'), false);
+  assert.ok(holidaysAt(calendar, Date.parse('2026-08-14T20:00:00Z')).some((h) => h.country === 'IN' && h.date === '2026-08-15'));
   // Indonesia has entered Monday while UTC is still Sunday.
   assert.ok(holidaysAt(calendar, Date.parse('2026-08-16T18:00:00Z')).some((h) => h.country === 'ID' && h.date === '2026-08-17'));
   // The separate upcoming list remains a complete calendar, including weekend holidays.
