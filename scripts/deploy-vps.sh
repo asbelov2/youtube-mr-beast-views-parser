@@ -3,7 +3,7 @@
 set +x
 set -euo pipefail
 
-deploy_revision=5a8dce396193a583dd7da7270763860f8d87577f
+deploy_revision=1c2c8e1f0598dceadc3aa03877dc247028fb0b09
 deploy_root=/opt/mrbeast
 deploy_state=/var/lib/mrbeast
 deploy_config=/etc/mrbeast
