@@ -96,7 +96,8 @@ function renderList() {
   if (!index) return;
   const list = $('video-list');
   list.replaceChildren();
-  for (const video of index.videos) {
+  const currentVideos = index.videos.filter((video) => video.tracking);
+  for (const video of currentVideos) {
     const button = document.createElement('button');
     button.className = `video-option${video.id === selectedId ? ' selected' : ''}`;
     button.setAttribute('aria-pressed', String(video.id === selectedId));
@@ -120,9 +121,15 @@ function renderList() {
     });
     list.append(button);
   }
-  text('video-count', String(index.videos.length));
-  text('collection-info', `Сбор каждые ${index.pollIntervalMinutes} мин. Видео отслеживаются ${index.trackingWindowDays} дней после публикации.`);
-  text('retention-note', `Срок отслеживания: ${index.trackingWindowDays} дней · Хранение: ${index.retentionDays} дней с публикации`);
+  if (!currentVideos.length) {
+    const message = document.createElement('p'); message.className = 'muted';
+    message.textContent = index.videos.length ? 'Сейчас нет видео в сроке сбора. Открыта сохранённая история из архива.'
+      : 'Видео появятся после первого успешного сбора.';
+    list.append(message);
+  }
+  text('video-count', String(currentVideos.length));
+  text('collection-info', `Сбор каждые ${index.pollIntervalMinutes} мин. Видео отслеживаются ${index.trackingWindowDays} дней после публикации. Архивные видео доступны для наложения на график.`);
+  text('retention-note', `Срок отслеживания: ${index.trackingWindowDays} дней · История хранится бессрочно`);
   renderOverlayChoices();
   $('empty-state').hidden = index.videos.length > 0;
   $('video-panel').hidden = index.videos.length === 0;
@@ -135,7 +142,7 @@ function renderOverlayChoices() {
   const select = $<HTMLSelectElement>('overlay-select');
   select.replaceChildren(new Option(available.length ? 'Выберите видео…' : 'Нет более ранних видео в базе', ''));
   for (const video of available) if (!overlayIds.has(video.id)) {
-    select.append(new Option(`${channelName(video.channelId)} · ${dateTime(video.publishedAt)} · ${video.title}`, video.id));
+    select.append(new Option(`${video.tracking ? '' : 'Архив · '}${channelName(video.channelId)} · ${dateTime(video.publishedAt)} · ${video.title}`, video.id));
   }
   select.disabled = overlayIds.size >= OVERLAY_COLORS.length || select.options.length === 1;
   $('overlay-selection').replaceChildren(...[...overlayIds].map((id) => {
@@ -247,6 +254,7 @@ function renderVideo(data: DashboardVideo) {
   renderUpcomingHolidays();
   const { video, comparison, dayComparison, forecast } = data;
   const tracking = index?.videos.find((item) => item.id === video.id)?.tracking ?? false;
+  $('archive-notice').hidden = tracking;
   text('video-title', video.title);
   text('tracking-status', tracking ? 'ОТСЛЕЖИВАЕТСЯ' : 'СБОР ЗАВЕРШЁН');
   $('tracking-status').classList.toggle('archived', !tracking);
@@ -355,7 +363,9 @@ async function refreshIndex() {
   refreshing = true; $<HTMLButtonElement>('refresh').disabled = true;
   try {
     index = await request<DashboardIndex>('/api/videos');
-    if (!index.videos.some((video) => video.id === selectedId)) selectedId = index.videos[0]?.id ?? null;
+    if (!index.videos.some((video) => video.id === selectedId)) {
+      selectedId = index.videos.find((video) => video.tracking)?.id ?? index.videos[0]?.id ?? null;
+    }
     renderList(); await refreshDetail();
     if (!index.videos.length) $('global-error').hidden = true;
   } catch (error) { showError(error); }

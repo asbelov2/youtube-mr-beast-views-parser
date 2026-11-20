@@ -6,7 +6,6 @@ export { MRBEAST_CHANNEL_ID, MRBEAST_GAMING_CHANNEL_ID } from './channels.js';
 export const DEFAULT_TRACKING_WINDOW_DAYS = 14;
 export const DEFAULT_POLL_INTERVAL_MINUTES = 5;
 export const DEFAULT_FULL_DISCOVERY_INTERVAL_MINUTES = 60;
-export const RETENTION_WINDOW_MULTIPLIER = 2;
 export const DAY_MS = 24 * 60 * 60 * 1_000;
 const MINUTE_MS = 60 * 1_000;
 
@@ -57,8 +56,8 @@ export function readPublicConfig(env: NodeJS.ProcessEnv = process.env): PublicCo
     throw new Error('WEB_PORT must be an integer between 0 and 65535.');
   }
   const trackingWindowMs = duration(env, 'TRACKING_WINDOW_DAYS', DEFAULT_TRACKING_WINDOW_DAYS, DAY_MS);
-  if (trackingWindowMs * RETENTION_WINDOW_MULTIPLIER > 8_640_000_000_000_000) {
-    throw new Error('TRACKING_WINDOW_DAYS is too large for the retention window.');
+  if (trackingWindowMs > 8_640_000_000_000_000) {
+    throw new Error('TRACKING_WINDOW_DAYS is too large for a date range.');
   }
   return {
     channelIds,

@@ -47,31 +47,21 @@ test('rolls back the entire database transaction if a write fails', (t) => {
   assert.deepEqual(store.activeVideoIds(MRBEAST_CHANNEL_ID, NOW, 14 * DAY_MS), []);
 });
 
-test('retention deletes a video and all snapshots only after twice the tracking window', (t) => {
+test('archive listings and CSV preserve old videos while active IDs follow only the tracking window', (t) => {
   const store = new Store(':memory:');
   t.after(() => store.close());
   store.record([
-    video({ id: 'expired', publishedAt: new Date(NOW.getTime() - 28 * DAY_MS - 1).toISOString() }),
-    video({ id: 'boundary', publishedAt: new Date(NOW.getTime() - 28 * DAY_MS).toISOString() }),
+    video({ id: 'old-archive', publishedAt: new Date(NOW.getTime() - 400 * DAY_MS).toISOString(), viewCount: '900719925474099312345' }),
+    video({ id: 'current' }),
     video({ id: 'archived', publishedAt: new Date(NOW.getTime() - 20 * DAY_MS).toISOString() }),
     video({ id: 'other', channelId: 'another-channel', publishedAt: new Date(NOW.getTime() - 40 * DAY_MS).toISOString() }),
   ], NOW.toISOString());
-  assert.equal(store.pruneExpired(MRBEAST_CHANNEL_ID, NOW, 28 * DAY_MS), 1);
-  assert.deepEqual(store.history('expired'), []);
-  assert.equal(store.history('boundary').length, 1);
+  assert.deepEqual(store.activeVideoIds(MRBEAST_CHANNEL_ID, NOW, 14 * DAY_MS), ['current']);
+  assert.equal(store.history('old-archive')[0]!.viewCount, '900719925474099312345');
   assert.equal(store.history('archived').length, 1);
   assert.equal(store.history('other').length, 1);
-  assert.equal(store.pruneExpired(MRBEAST_CHANNEL_ID, NOW, 28 * DAY_MS), 0);
-  assert.equal(store.listVideos(MRBEAST_CHANNEL_ID).length, 2);
-  assert.doesNotMatch([...store.csv()].join(''), /expired/);
-});
-
-test('retention follows a changed tracking window rather than a hard-coded 28 days', (t) => {
-  const store = new Store(':memory:');
-  t.after(() => store.close());
-  store.record([video({ publishedAt: new Date(NOW.getTime() - 20 * DAY_MS).toISOString() })], NOW.toISOString());
-  assert.equal(store.pruneExpired(MRBEAST_CHANNEL_ID, NOW, 42 * DAY_MS), 0);
-  assert.equal(store.pruneExpired(MRBEAST_CHANNEL_ID, NOW, 14 * DAY_MS), 1);
+  assert.equal(store.listVideos(MRBEAST_CHANNEL_ID).length, 3);
+  assert.match([...store.csv()].join(''), /old-archive/);
 });
 
 test('an existing database gains Shorts exclusions without replacing any history, across restarts', (t) => {
@@ -100,11 +90,13 @@ test('an existing database gains Shorts exclusions without replacing any history
   assert.doesNotMatch([...store.csv()].join(''), /"short"/);
   assert.equal(store.history('short')[0]!.viewCount, '900719925474099312345');
   assert.equal(store.history('fresh-video')[0]!.viewCount, '900719925474099312345');
-  // Retention can still remove excluded videos: no orphaned classification or FK errors.
-  assert.equal(store.pruneExpired(MRBEAST_CHANNEL_ID, new Date(NOW.getTime() + 30 * DAY_MS), 28 * DAY_MS), 2);
+  const later = new Date(NOW.getTime() + 400 * DAY_MS);
+  assert.deepEqual(store.activeVideoIds(MRBEAST_CHANNEL_ID, later, 14 * DAY_MS), []);
+  assert.equal(store.listVideos(MRBEAST_CHANNEL_ID).length, 1);
   const raw = new DatabaseSync(path, { readOnly: true });
   try {
-    assert.equal(raw.prepare('SELECT count(*) AS n FROM excluded_shorts').get()!.n, 0);
+    assert.equal(raw.prepare('SELECT count(*) AS n FROM excluded_shorts').get()!.n, 1);
+    assert.equal(raw.prepare('SELECT count(*) AS n FROM view_snapshots').get()!.n, 3);
     assert.deepEqual(raw.prepare('PRAGMA foreign_key_check').all(), []);
   } finally { raw.close(); }
 });

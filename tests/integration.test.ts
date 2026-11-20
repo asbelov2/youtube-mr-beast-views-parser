@@ -16,6 +16,7 @@ test('real HTTP -> uploads -> view counts -> persistent SQLite -> CSV, including
   const databasePath = join(directory, 'views.sqlite');
   const publishedAt = new Date(NOW.getTime() - DAY_MS).toISOString();
   let count = '100';
+  let statisticsRequests = 0;
   const server = createServer((req, res) => {
     assert.equal(req.headers['x-goog-api-key'], 'test-key');
     const url = new URL(req.url!, 'http://localhost');
@@ -28,6 +29,7 @@ test('real HTTP -> uploads -> view counts -> persistent SQLite -> CSV, including
       }
       res.end(JSON.stringify({ items: [{ contentDetails: { videoId: 'fresh-video', videoPublishedAt: publishedAt } }] }));
     } else if (url.pathname.endsWith('/videos')) {
+      statisticsRequests++;
       res.end(JSON.stringify({ items: [apiVideo({ statistics: { viewCount: count } })] }));
     } else {
       res.statusCode = 404;
@@ -60,6 +62,15 @@ test('real HTTP -> uploads -> view counts -> persistent SQLite -> CSV, including
     assert.equal((await collector.collect()).recorded, 1);
     now = new Date(Date.parse(publishedAt) + 14 * DAY_MS);
     assert.equal((await collector.collect()).recorded, 0);
+    for (const age of [28, 29, 365]) {
+      now = new Date(Date.parse(publishedAt) + age * DAY_MS);
+      assert.equal((await collector.collect()).recorded, 0);
+    }
+    assert.equal(statisticsRequests, 3);
+    store.close(); store = new Store(databasePath);
+    assert.equal(store.listVideos(MRBEAST_CHANNEL_ID).length, 1);
+    assert.equal(store.activeVideoIds(MRBEAST_CHANNEL_ID, now, 14 * DAY_MS).length, 0);
+    assert.equal(store.history('fresh-video').length, 3);
     const rows = [...store.csv()];
     assert.equal(rows.length, 4);
     assert.match(rows[1]!, /"100"/);

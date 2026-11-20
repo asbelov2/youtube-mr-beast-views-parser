@@ -52,5 +52,5 @@ test('web settings can be read without an API key and reject invalid ports', () 
   for (const port of ['-1', '65536', '1.5', 'abc']) {
     assert.throws(() => readPublicConfig({ WEB_PORT: port }), /WEB_PORT/);
   }
-  assert.throws(() => readPublicConfig({ TRACKING_WINDOW_DAYS: '100000000' }), /retention window/);
+  assert.throws(() => readPublicConfig({ TRACKING_WINDOW_DAYS: '100000001' }), /date range/);
 });

@@ -166,7 +166,7 @@ curl --fail --silent --show-error --noproxy '*' http://127.0.0.1/api/videos -o "
 "$deploy_node" --input-type=module - "$deploy_state/startup-check.json" <<'JS'
 import { readFileSync } from 'node:fs';
 const data = JSON.parse(readFileSync(process.argv[2], 'utf8'));
-if (!Array.isArray(data.videos) || data.pollIntervalMinutes !== 5 || data.retentionDays !== 28) throw new Error('Unexpected dashboard response');
+if (!Array.isArray(data.videos) || data.pollIntervalMinutes !== 5 || data.retentionDays !== null) throw new Error('Unexpected dashboard response');
 console.log('Both channels collected successfully; saved videos: ' + data.videos.length);
 JS
 systemctl is-enabled --quiet mrbeast.service

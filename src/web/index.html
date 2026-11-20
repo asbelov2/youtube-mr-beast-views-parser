@@ -18,10 +18,11 @@
     <div class="page-heading"><div><p class="eyebrow">MRBEAST · MRBEAST GAMING · YOUTUBE ANALYTICS</p><h1>Как растут просмотры</h1><p class="page-subtitle">Наблюдайте динамику. Сравнивайте периоды. Исследуйте прогноз.</p></div><button id="refresh" class="secondary-button">Обновить данные <span aria-hidden="true">↻</span></button></div>
     <div id="global-error" class="alert error" role="alert" hidden></div>
     <div class="workspace">
-      <aside class="sidebar"><div class="sidebar-heading"><h2>Видео</h2><span id="video-count" class="count">—</span></div><div id="video-list" class="video-list" aria-label="Выбор видео"><p class="muted">Загрузка…</p></div><p id="collection-info" class="sidebar-note"></p></aside>
+      <aside class="sidebar"><div class="sidebar-heading"><h2>Текущие видео</h2><span id="video-count" class="count">—</span></div><div id="video-list" class="video-list" aria-label="Выбор текущего видео"><p class="muted">Загрузка…</p></div><p id="collection-info" class="sidebar-note"></p></aside>
       <section id="empty-state" class="empty-state" hidden><span class="empty-symbol">↗</span><h2>История начинается здесь</h2><p>Видео появятся после первого успешного сбора статистики.</p></section>
       <section id="video-panel" class="video-panel" hidden aria-label="Статистика выбранного видео">
         <div class="video-heading"><div><span id="tracking-status" class="status-pill"></span><h2 id="video-title"></h2><p id="video-meta" class="muted"></p></div><a id="youtube-link" class="external-link" target="_blank" rel="noopener noreferrer">На YouTube</a></div>
+        <p id="archive-notice" class="alert" hidden>Сбор для этого видео завершён. История сохранена в архиве; более ранние видео можно наложить на график.</p>
         <div class="metrics">
           <article class="metric"><span class="metric-label">Число просмотров</span><strong id="current-views">—</strong><span id="last-observed" class="metric-caption"></span></article>
           <article class="metric"><span id="growth-label" class="metric-label">Прирост за 1 час</span><strong id="growth-views" class="cyan">—</strong><span id="growth-percent" class="metric-caption"></span><span id="growth-day-comparison" class="metric-caption day-comparison"></span></article>

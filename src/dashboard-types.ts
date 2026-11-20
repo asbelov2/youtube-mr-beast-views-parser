@@ -7,7 +7,8 @@ export interface DashboardIndex {
   videos: Array<VideoSummary & { tracking: boolean }>;
   generatedAt: string;
   trackingWindowDays: number;
-  retentionDays: number;
+  /** null means history is kept indefinitely, independently of the tracking window. */
+  retentionDays: number | null;
   pollIntervalMinutes: number;
 }
 

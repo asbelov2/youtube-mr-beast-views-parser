@@ -103,16 +103,16 @@ test('aging out stops statistics requests but preserves old observations', async
 test('shrinking and growing the configured window changes eligibility without deleting history', async (t) => {
   const store = new Store(':memory:');
   t.after(() => store.close());
-  const v = video({ publishedAt: new Date(NOW.getTime() - 10 * DAY_MS).toISOString() });
+  const v = video({ publishedAt: new Date(NOW.getTime() - 20 * DAY_MS).toISOString() });
   const youtube = {
     shortVideoIds: async () => [],
     recentVideoIds: async (cutoff: Date) => Date.parse(v.publishedAt) > cutoff.getTime() ? [v.id] : [],
     videos: async (ids: string[]) => ids.map(() => v),
   };
-  assert.equal((await new Collector(CONFIG, youtube, store, () => NOW).collect()).recorded, 1);
+  assert.equal((await new Collector({ ...CONFIG, trackingWindowMs: 21 * DAY_MS }, youtube, store, () => NOW).collect()).recorded, 1);
   const later = new Date(NOW.getTime() + 60_000);
   assert.equal((await new Collector({ ...CONFIG, trackingWindowMs: 7 * DAY_MS }, youtube, store, () => later).collect()).recorded, 0);
-  assert.equal((await new Collector({ ...CONFIG, trackingWindowMs: 21 * DAY_MS }, youtube, store, () => later).collect()).recorded, 1);
+  assert.equal((await new Collector({ ...CONFIG, trackingWindowMs: 30 * DAY_MS }, youtube, store, () => later).collect()).recorded, 1);
   assert.equal([...store.csv()].length, 3);
 });
 
@@ -149,20 +149,22 @@ test('an aborted collection does not write observations', async (t) => {
   assert.equal([...store.csv()].length, 1);
 });
 
-test('automatic cleanup runs even when YouTube is unavailable', async (t) => {
+test('failed collection preserves all archived history, including videos far beyond the former retention limit', async (t) => {
   const store = new Store(':memory:');
   t.after(() => store.close());
   store.record([
     video({ id: 'expired', publishedAt: new Date(NOW.getTime() - 29 * DAY_MS).toISOString() }),
     video({ id: 'archived', publishedAt: new Date(NOW.getTime() - 20 * DAY_MS).toISOString() }),
+    video({ id: 'old-archive', publishedAt: new Date(NOW.getTime() - 400 * DAY_MS).toISOString() }),
   ], NOW.toISOString());
   const collector = new Collector(CONFIG, {
     shortVideoIds: async () => [],
     recentVideoIds: async () => { throw new Error('offline'); }, videos: async () => [],
   }, store, () => NOW);
   await assert.rejects(collector.collect(), /offline/);
-  assert.equal(store.history('expired').length, 0);
+  assert.equal(store.history('expired').length, 1);
   assert.equal(store.history('archived').length, 1);
+  assert.equal(store.history('old-archive').length, 1);
 });
 
 test('Shorts are never requested or recorded and existing active and archived Shorts become hidden', async (t) => {

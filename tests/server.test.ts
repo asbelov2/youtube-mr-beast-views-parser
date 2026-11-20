@@ -36,7 +36,7 @@ test('dashboard API lists saved videos and settings without credentials', async 
   assert.equal(data.videos[0]!.observations, 13);
   assert.equal(data.videos[0]!.tracking, true);
   assert.equal(data.pollIntervalMinutes, 5);
-  assert.equal(data.retentionDays, 28);
+  assert.equal(data.retentionDays, null);
   assert.equal(JSON.stringify(data).includes('apiKey'), false);
 });
 
@@ -156,6 +156,22 @@ test('an empty database is valid and does not create example or fabricated data'
   const { base } = await fixture(t, true);
   const data = await (await fetch(`${base}/api/videos`)).json() as DashboardIndex;
   assert.deepEqual(data.videos, []);
+});
+
+test('old videos remain in the archive index, detail API and CSV after their tracking window', async (t) => {
+  const { base, store } = await fixture(t);
+  const publishedAt = new Date(NOW.getTime() - 400 * 86_400_000).toISOString();
+  const observedAt = new Date(Date.parse(publishedAt) + 13 * 86_400_000).toISOString();
+  store.record([video({ id: 'old-archive', publishedAt, viewCount: '900719925474099312345' })], observedAt);
+  const index = await (await fetch(`${base}/api/videos`)).json() as DashboardIndex;
+  assert.equal(index.retentionDays, null);
+  assert.deepEqual(index.videos.filter((v) => v.tracking).map((v) => v.id), ['fresh-video']);
+  assert.equal(index.videos.find((v) => v.id === 'old-archive')!.tracking, false);
+  const response = await fetch(`${base}/api/videos/old-archive`);
+  assert.equal(response.status, 200);
+  const detail = await response.json() as DashboardVideo;
+  assert.deepEqual(detail.history, [{ observedAt, viewCount: '900719925474099312345' }]);
+  assert.match(await (await fetch(`${base}/api/export.csv`)).text(), /old-archive/);
 });
 
 test('previously collected Shorts disappear from the index, detail endpoint and CSV without losing snapshots', async (t) => {

@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { compareDayAgo, compareGrowth, type ModelChoice } from './analytics.js';
 import { fitVideoForecast, readFitWindow } from './fit-window.js';
 import { videoHolidays } from './holidays.js';
-import { DAY_MS, RETENTION_WINDOW_MULTIPLIER, type PublicConfig } from './config.js';
+import { DAY_MS, type PublicConfig } from './config.js';
 import type { DashboardIndex, DashboardVideo } from './dashboard-types.js';
 import type { Store } from './storage.js';
 import { isWithinTrackingWindow } from './types.js';
@@ -60,7 +60,7 @@ export function createDashboardServer(options: ServerOptions): Server {
           })),
           generatedAt: current.toISOString(),
           trackingWindowDays: options.config.trackingWindowMs / DAY_MS,
-          retentionDays: options.config.trackingWindowMs * RETENTION_WINDOW_MULTIPLIER / DAY_MS,
+          retentionDays: null,
           pollIntervalMinutes: options.config.pollIntervalMs / 60_000,
         };
         json(200, payload);

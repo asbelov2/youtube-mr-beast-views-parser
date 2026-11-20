@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import { DAY_MS, RETENTION_WINDOW_MULTIPLIER, type PublicConfig } from './config.js';
+import { DAY_MS, type PublicConfig } from './config.js';
 import type { OfflineData } from './dashboard-types.js';
 import type { Store } from './storage.js';
 import { isWithinTrackingWindow } from './types.js';
@@ -19,7 +19,7 @@ export async function writeReport(store: Store, config: PublicConfig, output: st
         tracking: isWithinTrackingWindow(video.publishedAt, now, config.trackingWindowMs),
       })),
       generatedAt: now.toISOString(), trackingWindowDays: config.trackingWindowMs / DAY_MS,
-      retentionDays: config.trackingWindowMs * RETENTION_WINDOW_MULTIPLIER / DAY_MS,
+      retentionDays: null,
       pollIntervalMinutes: config.pollIntervalMs / 60_000,
     },
     histories: Object.fromEntries(videos.map((video) => [video.id, store.history(video.id)])),

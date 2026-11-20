@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Collector } from './collector.js';
 import { channelName } from './channels.js';
-import { databasePath, DAY_MS, readConfig, readPublicConfig, RETENTION_WINDOW_MULTIPLIER } from './config.js';
+import { databasePath, DAY_MS, readConfig, readPublicConfig } from './config.js';
 import { runScheduler } from './scheduler.js';
 import { createDashboardServer } from './server.js';
 import { writeReport } from './report.js';
@@ -122,7 +122,7 @@ async function main(): Promise<void> {
       console.log(JSON.stringify({
         event: 'collector_started', channelIds: config.channelIds,
         trackingWindowDays: config.trackingWindowMs / DAY_MS,
-        retentionDays: config.trackingWindowMs * RETENTION_WINDOW_MULTIPLIER / DAY_MS,
+        retentionDays: null,
         pollIntervalMinutes: config.pollIntervalMs / 60_000,
         fullDiscoveryIntervalMinutes: config.fullDiscoveryIntervalMs / 60_000,
         databasePath: config.databasePath,

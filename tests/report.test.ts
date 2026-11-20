@@ -19,6 +19,7 @@ test('standalone report embeds histories and publication dates from both channel
   store.record([
     video(), video({ id: 'gaming', channelId: MRBEAST_GAMING_CHANNEL_ID, title }),
     video({ id: 'excluded-short' }),
+    video({ id: 'old-archive', publishedAt: new Date(NOW.getTime() - 400 * 86_400_000).toISOString() }),
   ], new Date(NOW.getTime() - 86_400_000).toISOString());
   store.excludeShorts(MRBEAST_CHANNEL_ID, ['excluded-short']);
   const path = join(directory, 'report.html');
@@ -28,7 +29,12 @@ test('standalone report embeds histories and publication dates from both channel
   assert.ok(payload);
   assert.doesNotMatch(payload[1]!, /<script>/);
   const data = JSON.parse(payload[1]!) as OfflineData;
-  assert.equal(data.index.videos.length, 2);
+  assert.equal(data.index.videos.length, 3);
+  assert.equal(data.index.retentionDays, null);
+  assert.equal(data.index.videos.find((v) => v.id === 'old-archive')!.tracking, false);
+  assert.equal(data.histories['old-archive']!.length, 1);
+  assert.ok(data.calendars['old-archive']!.length > 0);
+  assert.match(data.csv, /old-archive/);
   assert.equal(data.histories['excluded-short'], undefined);
   assert.equal(data.calendars['excluded-short'], undefined);
   assert.doesNotMatch(data.csv, /excluded-short/);

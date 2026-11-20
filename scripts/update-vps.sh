@@ -84,7 +84,7 @@ $update_ready || update_fail 'Updated service did not become ready.'
 "$update_root/node/bin/node" --input-type=module - "$update_tmp/health.json" "$update_port" <<'JS'
 import { readFileSync } from 'node:fs';
 const data = JSON.parse(readFileSync(process.argv[2], 'utf8'));
-if (!Array.isArray(data.videos)) throw new Error('Invalid dashboard response');
+if (!Array.isArray(data.videos) || data.retentionDays !== null) throw new Error('Invalid dashboard response or archive retention policy');
 if (data.videos.length) {
   const response = await fetch(`http://127.0.0.1:${process.argv[3]}/api/videos/${encodeURIComponent(data.videos[0].id)}?compareHours=13&forecastHours=1&model=daily-saturation&fitStartDay=0`, { signal: AbortSignal.timeout(10000) });
   if (!response.ok) throw new Error('Updated forecast endpoint is unavailable');
@@ -94,7 +94,7 @@ if (data.videos.length) {
 const html = await fetch(`http://127.0.0.1:${process.argv[3]}/`, { signal: AbortSignal.timeout(10000) });
 if (!html.ok) throw new Error('Dashboard is unavailable');
 const template = await html.text();
-if (!['value="daily-saturation"', 'id="overlay-select"', 'id="world-clocks"', 'id="fit-window-form"', 'id="holiday-markers"', 'id="upcoming-holiday-list"'].every((field) => template.includes(field))) throw new Error('Updated dashboard controls are unavailable');
+if (!['value="daily-saturation"', 'id="overlay-select"', 'id="world-clocks"', 'id="fit-window-form"', 'id="holiday-markers"', 'id="upcoming-holiday-list"', 'id="archive-notice"'].every((field) => template.includes(field))) throw new Error('Updated dashboard controls are unavailable');
 console.log('Updated dashboard verified; saved videos: ' + data.videos.length);
 JS
 systemctl is-active --quiet mrbeast.service

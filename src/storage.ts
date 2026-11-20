@@ -97,26 +97,6 @@ export class Store {
     }
   }
 
-  pruneExpired(channelId: string, now: Date, retentionMs: number): number {
-    const cutoff = new Date(now.getTime() - retentionMs).toISOString();
-    this.db.exec('BEGIN IMMEDIATE');
-    try {
-      // Explicit deletes also work with databases created before retention was added.
-      this.db.prepare(`
-        DELETE FROM view_snapshots WHERE video_id IN (
-          SELECT id FROM videos WHERE channel_id = ? AND published_at < ?
-        )
-      `).run(channelId, cutoff);
-      const result = this.db.prepare('DELETE FROM videos WHERE channel_id = ? AND published_at < ?')
-        .run(channelId, cutoff);
-      this.db.exec('COMMIT');
-      return Number(result.changes);
-    } catch (error) {
-      this.db.exec('ROLLBACK');
-      throw error;
-    }
-  }
-
   listVideos(channelIds: string | readonly string[]): VideoSummary[] {
     const ids = typeof channelIds === 'string' ? [channelIds] : channelIds;
     if (ids.length === 0) return [];
